@@ -261,6 +261,15 @@ bool advance_movie(struct frontend_userdata *fe) {
   return use_movie_buttons;
 }
 
+static void set_fullscreen(struct frontend_userdata *fe, bool fullscreen) {
+  fe->fullscreen = fullscreen;
+#ifdef USE_SDL2
+  SDL_SetWindowFullscreen(fe->window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#else
+  SDL_SetWindowFullscreen(fe->window, fullscreen);
+#endif
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
@@ -293,12 +302,17 @@ static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, boo
       break;
 
     case SDL_SCANCODE_F11:
-      fe->fullscreen = !fe->fullscreen;
+      set_fullscreen(fe, !fe->fullscreen);
+      break;
+
+    case SDL_SCANCODE_Q:
 #ifdef USE_SDL2
-      SDL_SetWindowFullscreen(fe->window, fe->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+      if ((SDL_GetModState() & KMOD_ALT) != 0 && fe->fullscreen) {
 #else
-      SDL_SetWindowFullscreen(fe->window, fe->fullscreen);
+      if ((SDL_GetModState() & SDL_KMOD_ALT) != 0 && fe->fullscreen) {
 #endif
+        set_fullscreen(fe, false);
+      }
       break;
 
     default:

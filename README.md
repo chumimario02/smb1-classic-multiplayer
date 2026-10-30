@@ -41,7 +41,8 @@ Keyboard:
 - `K` — jump (A)
 - `Enter` — Start
 - `\` — Select
-- `F11` — fullscreen
+- `F11` — toggle fullscreen
+- `Alt+Q` — exit fullscreen
 
 Gamepad (SDL2, first controller):
 
