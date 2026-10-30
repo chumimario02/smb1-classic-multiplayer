@@ -36,12 +36,29 @@ See [docs/DISENO.md](docs/DISENO.md) for the full design and [docs/ROADMAP.md](d
 
 ## Build on Windows
 
-See [BUILDING.md](BUILDING.md). The short version:
+### MSYS2 + MinGW (tested)
+
+Install the toolchain from the MSYS2 MinGW64 shell:
 
 ```sh
-meson setup build/ --cmake-prefix-path="C:\path\to\SDL3"
-meson compile -C build/
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-SDL2
 ```
+
+Then build. The script uses the OpenGL renderer by default:
+
+```sh
+./tools/build-windows.sh
+```
+
+If your GPU or driver does not support OpenGL 3.3, build with the software renderer:
+
+```sh
+./tools/build-windows.sh false
+```
+
+### MSVC + SDL3
+
+See [BUILDING.md](BUILDING.md).
 
 Then put `smb.nes` next to the executable (or set `rom_filename` in `smbvanilla.ini`) and run:
 

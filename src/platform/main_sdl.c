@@ -24,6 +24,12 @@ struct rom_extension {
 #define log_error(msg, ...) fprintf(stderr, "ERROR: " msg "\n", ##__VA_ARGS__)
 #define log_info(msg, ...)  fprintf(stdout, "INFO: " msg "\n", ##__VA_ARGS__)
 
+#ifdef OPENGL_ENABLED
+static SMBgl_functionptr_f sdl_gl_get_proc_address(const char *name) {
+  return (SMBgl_functionptr_f)SDL_GL_GetProcAddress(name);
+}
+#endif
+
 #include "config.h"
 
 static bool io_readtobuffer(const char *filename, size_t size, void *buf) {
@@ -499,7 +505,7 @@ int main(int argc, char *argv[]) {
     if (glcontext) {
       fe->smb_gl = malloc(SMBgl_size());
 
-      if (!SMBgl_init(fe->smb_gl, SDL_GL_GetProcAddress)) {
+      if (!SMBgl_init(fe->smb_gl, sdl_gl_get_proc_address)) {
         log_error("Could not initialize OpenGL");
         free(fe->smb_gl);
         fe->smb_gl = 0;
