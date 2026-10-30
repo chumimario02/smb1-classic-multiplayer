@@ -10,3 +10,7 @@
 archive
 *.nes
 *.fds
+*.rom
+*.zip
+*.7z
+*.log

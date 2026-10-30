@@ -1,79 +1,74 @@
-# SMB Vanilla
+# SMB1 Classic Multiplayer
 
-For issues and pull requests, please visit [Codeberg](https://codeberg.org/dannysp/SMB-Vanilla).
+A fan-made, source-available fork of [SMB Vanilla](https://github.com/nukep/SMB-Vanilla) focused on **ghost-style online co-op** for **Windows** and the **Raspberry Pi Zero 2 W**.
 
-A C decompilation of the NES games "Super Mario Bros" and "Super Mario Bros 2 Japan" (aka Lost Levels).
+> **Status:** early development. The upstream single-player game works; the online mode and the co-op rules are designed but not implemented yet.
 
-<img width="512" src="./docs/screenshot1.png" alt="Screenshot" />
+## What is this?
 
-This project intends to support most non-gamebreaking glitches from the original games (e.g. the minus world, collision and clipping bugs).
+SMB Vanilla is a C decompilation/port of the NES games *Super Mario Bros.* and *Super Mario Bros.: The Lost Levels*. This fork keeps the classic game and adds a lightweight online layer where two players share a room but play their own instance of the level.
 
-A legally obtained ROM dump is required to play the game. Otherwise, it will not run. This project only reimplements the gameplay, and does not come with level data or graphical assets.
+The other player appears as a **ghost**: you can see their position and animation, but they do not collide with your enemies, blocks or physics. Interaction happens through events:
 
-Progress made:
+- **Shared power-ups:** if one player grabs a mushroom or fire flower, the other gets it too.
+- **Eco blocks:** blocks that exist only in one player's world. Breaking one sends a reward or opens a path for the other player.
+- **Emotes / revives:** small interactions to keep the run cooperative without syncing the whole world.
 
-- [x] Super Mario Bros runs, is beatable
-- [x] Super Mario Bros 2J (Lost Levels) runs, is beatable
-- [x] Audio for SMB1 and (excluding the ending) SMB2J
-- [x] Get the core games compiling in C only (to make sure it's portable to older and embedded systems)
-- [ ] Refactor of Ghidra-produced code (in progress)
-- [ ] Audio for SMB2J ending (uses 2C33 audio chip)
-- [ ] Unit and regression tests
-- [ ] A decent UI/UX, customizable controls
+This is intentionally **not** a shared-world co-op and **not** split-screen. Each player has their own camera on their own device. It is inspired by the ghost online mode of *Super Mario Bros. Wonder*.
 
-*No AI-generated code or assets are included in this project.*
+## Planned co-op rules
 
+- **Online only.** No local co-op.
+- **Infinite lives.** Dying respawns you; there is no Game Over.
+- **No time limit.** The timer is frozen and the hurry-up/death-by-time logic is disabled.
+- **Level completion waits:** the first player to finish waits at the flagpole. When the second finishes, both advance.
+- **If the second player dies after the first finished,** the second also completes the level, so nobody gets stuck.
+- **Death:** respawn next to your friend on safe ground, with brief invulnerability, or at the last checkpoint if they are in another section.
+- **Both dead:** both return to the last checkpoint.
 
-## Running the game
+See [docs/DISENO.md](docs/DISENO.md) for the full design and [docs/ROADMAP.md](docs/ROADMAP.md) for the implementation order.
 
-Provide a copy of "smb.nes" and put in the same directory as the executable. Alternatively, modify the file paths in smbvanilla.ini.
+## Requirements
 
-smbvanilla.ini also has options to change key bindings if they're not tasteful for you.
+- A **legally obtained** Super Mario Bros. NES ROM (`smb.nes`). **No ROM or original Nintendo assets are included in this repository.**
+- Windows: C/C++ compiler, Meson, SDL3 (preferred) or SDL2.
+- Raspberry Pi: Raspberry Pi OS, SDL2, Meson, Ninja and a C/C++ compiler.
 
-When all is set up, run smbvanilla.exe (or smbvanilla on *nix). The first CLI argument can be the ROM filename to override the value in smbvanilla.ini. On Windows you can also drag the ROM onto the executable.
+## Build on Windows
 
+See [BUILDING.md](BUILDING.md). The short version:
+
+```sh
+meson setup build/ --cmake-prefix-path="C:\path\to\SDL3"
+meson compile -C build/
 ```
-./smbvanilla
+
+Then put `smb.nes` next to the executable (or set `rom_filename` in `smbvanilla.ini`) and run:
+
+```sh
+build/src/platform/smbvanilla.exe
 ```
 
-To play SMB2J (Lost Levels), provide the ROM path as a CLI argument, or modify smbvanilla.ini.
+## Build on Raspberry Pi Zero 2 W
 
-To play a specific level (SMB1 only right now), you can do so from the command line. For example, to play World 8-1:
-
+```sh
+sudo apt install build-essential meson ninja-build libsdl2-dev
+meson setup build -Dsdl2=true -Dopengl=false
+meson compile -C build
+./build/src/platform/smbvanilla
 ```
-./smbvanilla --level 8-1
-```
 
-Known-to-work hashes:
-- SHA-1 hashes for smb.nes (NTSC): ea343f4e445a9050d4b4fbac2c77d0693b1d0922
-- SHA-1 hashes for smb2j.fds: 3b8c8998b4887d6dd676965943d69a320738ab9c or 20e50128742162ee47561db9e82b2836399c880c
+- `-Dopengl=false` selects the software renderer, because the Zero 2 W only supports OpenGL ES 2.0 (the OpenGL renderer requires OpenGL 3.3).
+- Target: 60 fps at the original 256x240 resolution, scaled to the display.
+- Gamepad support and a fullscreen launcher are on the roadmap.
 
-Romhacks that modify code or other types of data are not supported.
+## Online server
 
+The planned room/relay server is [smb1r-online-server](https://github.com/chumimario02/smb1r-online-server): room codes plus a WebSocket relay. The client will send ghost state at a low rate (around 10 Hz) and discrete events for power-ups, eco blocks and revives. It is not wired into the game yet.
 
-## Building from source
+## Credits and license
 
-See [BUILDING.md](./BUILDING.md) for details.
-
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
-
-
-## Goals for this project
-
-The main goal of this project is to behave as identically to the original game as possible (including bugs).
-
-The secondary goal is to provide an accessible, high-level reference for the logic of Super Mario Bros. It's reasonable for retro enthusiasts to cross-reference this with disassembly listings.
-
-
-## Special Thanks
-
-Shoutout to doppelganger, for creating the go-to Super Mario Bros disassembly. Their work has been immensely helpful, and the diassembly is the basis for the label names used in this project:
-https://www.romhacking.net/documents/344/
-
-## Legal disclaimer
-
-This project has no affiliation with Nintendo. No ROMs are included in this project.
-
+- Based on [SMB Vanilla](https://github.com/nukep/SMB-Vanilla) by nukep and contributors. Licensed under **GPL-3.0**; see [LICENSE.md](LICENSE.md).
+- NES sound emulation: **Nes_Snd_Emu** by James Athey and **emu2413** by digital-sound-antiques.
+- Original SMB disassembly reference: doppelganger.
+- *Super Mario Bros.* is a trademark of Nintendo. This project is not affiliated with Nintendo. No ROMs or original Nintendo assets are included; you must provide your own legally obtained ROM. This is a non-commercial fan project.
