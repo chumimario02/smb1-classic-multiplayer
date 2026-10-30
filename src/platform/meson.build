@@ -32,6 +32,7 @@ executable('smbvanilla',
             'thirdparty/ini.c'] + opengl_sources,
 
            install: true,
+           win_subsystem: 'windows',
            include_directories: ['../../Nes_Snd_Emu', '..'] + opengl_include_dirs,
            link_with: [smbcore, nessndemu],
            dependencies: [sdl],

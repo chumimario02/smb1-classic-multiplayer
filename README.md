@@ -24,6 +24,7 @@ Implemented in the Windows build:
 - No time limit (timer frozen at 999).
 - Keyboard and SDL2 gamepad support.
 - Fullscreen toggle with **F11** (aspect-correct 4:3).
+- Windows build launches as a GUI app, with no extra console window.
 
 Still planned:
 
