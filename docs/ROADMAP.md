@@ -6,16 +6,16 @@
 - [x] Partir de SMB Vanilla (GPL-3.0) y conservar créditos.
 - [x] Documentar el diseño y las reglas.
 - [x] Añadir `.gitignore` para ROMs y builds.
-- [ ] Compilar el juego base en Windows.
-- [ ] Probar el modo un jugador con una ROM legal.
+- [x] Compilar el juego base en Windows.
+- [x] Probar el modo un jugador con una ROM legal.
 
 ## Fase 1 — Base en Windows
 
-- [ ] Build reproducible con Meson + SDL3 (o SDL2).
-- [ ] Configuración de mandito y teclado.
-- [ ] Pantalla completa y escalado entero.
+- [x] Build reproducible con Meson + SDL3 (o SDL2).
+- [x] Configuración de mandito y teclado.
+- [x] Pantalla completa y escalado 4:3.
 - [ ] Primer arranque sin ROM: mensaje claro para seleccionar `smb.nes`.
-- [ ] Medir rendimiento y estabilidad.
+- [x] Medir rendimiento y estabilidad.
 
 ## Fase 2 — Online básico
 
@@ -47,8 +47,8 @@
 
 ## Fase 6 — Reglas de co-op
 
-- [ ] Vidas infinitas.
-- [ ] Congelar el tiempo y desactivar hurry-up/muerte por tiempo.
+- [x] Vidas infinitas.
+- [x] Congelar el tiempo y desactivar hurry-up/muerte por tiempo.
 - [ ] Espera en la bandera y avance conjunto.
 - [ ] Muerte con respawn al lado del amigo.
 - [ ] Si el segundo muere tras terminar el primero, ambos avanzan.

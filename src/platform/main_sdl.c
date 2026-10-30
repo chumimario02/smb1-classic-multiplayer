@@ -77,11 +77,16 @@ struct frontend_userdata {
   struct Movie *movie;
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
+#ifdef USE_SDL2
+  SDL_GameController *gamecontroller;
+  struct SMB_buttons player1_gamepad_buttons;
+#endif
   bool rendering_enabled;
   struct config *cfg;
 
   SDL_Window *window;
   int video_scale;
+  bool fullscreen;
   struct sdl_key_scancodes sdl_key_scancodes;
 
   u8 smb2j_games_beaten;
@@ -97,11 +102,71 @@ struct frontend_userdata {
 
 void joy1(void *userdata, struct SMB_buttons *buttons) {
   struct frontend_userdata *fe = userdata;
+#ifdef USE_SDL2
+  const struct SMB_buttons *kb = &fe->player1_buttons;
+  const struct SMB_buttons *pad = &fe->player1_gamepad_buttons;
+  buttons->u      = kb->u      || pad->u;
+  buttons->d      = kb->d      || pad->d;
+  buttons->l      = kb->l      || pad->l;
+  buttons->r      = kb->r      || pad->r;
+  buttons->select = kb->select || pad->select;
+  buttons->start  = kb->start  || pad->start;
+  buttons->b      = kb->b      || pad->b;
+  buttons->a      = kb->a      || pad->a;
+#else
   *buttons = fe->player1_buttons;
+#endif
 }
 void joy2(void *userdata, struct SMB_buttons *buttons) {
   struct frontend_userdata *fe = userdata;
   *buttons = fe->player2_buttons;
+}
+
+#ifdef USE_SDL2
+static void poll_gamepad(struct frontend_userdata *fe) {
+  struct SMB_buttons b = {0};
+  SDL_GameController *gc = fe->gamecontroller;
+
+  if (gc) {
+    const int deadzone = 12000;
+    const int ax = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
+    const int ay = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
+
+    b.u      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_UP)    || ay < -deadzone;
+    b.d      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_DOWN)  || ay >  deadzone;
+    b.l      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_LEFT)  || ax < -deadzone;
+    b.r      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || ax >  deadzone;
+    b.a      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_A);
+    b.b      = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_B)
+            || SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_X);
+    b.start  = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START);
+    b.select = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK);
+  }
+
+  fe->player1_gamepad_buttons = b;
+}
+#endif
+
+// Classic-mode rules: infinite lives and no time limit.
+// Only touch the SMB1 RAM layout.
+static void apply_classic_rules(struct SMB_state *state) {
+  if (SMB_which_game(state) != GAME_SMB1) {
+    return;
+  }
+
+  u8 *ram = SMB_ram(state);
+
+  // NumberofLives / OffScr_NumberofLives: keep 9 and reset every frame.
+  ram[0x075A] = 9;
+  ram[0x0761] = 9;
+
+  // GameTimerDisplay: freeze at 999.
+  ram[0x07F8] = 9;
+  ram[0x07F9] = 9;
+  ram[0x07FA] = 9;
+
+  // GameTimerExpiredFlag: never show TIME UP.
+  ram[0x0759] = 0;
 }
 
 
@@ -227,6 +292,15 @@ static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, boo
       }
       break;
 
+    case SDL_SCANCODE_F11:
+      fe->fullscreen = !fe->fullscreen;
+#ifdef USE_SDL2
+      SDL_SetWindowFullscreen(fe->window, fe->fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+#else
+      SDL_SetWindowFullscreen(fe->window, fe->fullscreen);
+#endif
+      break;
+
     default:
       break;
     }
@@ -268,6 +342,26 @@ int sdl_tick(void *userdata) {
       }
     break;
 
+    case SDL_CONTROLLERDEVICEADDED:
+      if (!fe->gamecontroller && SDL_IsGameController(eventData.cdevice.which)) {
+        fe->gamecontroller = SDL_GameControllerOpen(eventData.cdevice.which);
+        if (fe->gamecontroller) {
+          log_info("Gamepad connected: %s", SDL_GameControllerName(fe->gamecontroller));
+        }
+      }
+      break;
+
+    case SDL_CONTROLLERDEVICEREMOVED:
+      if (fe->gamecontroller) {
+        SDL_Joystick *joy = SDL_GameControllerGetJoystick(fe->gamecontroller);
+        if (joy && SDL_JoystickInstanceID(joy) == eventData.cdevice.which) {
+          SDL_GameControllerClose(fe->gamecontroller);
+          fe->gamecontroller = NULL;
+          log_info("Gamepad disconnected");
+        }
+      }
+      break;
+
     case SDL_QUIT:
       return 1;
     }
@@ -299,8 +393,22 @@ int sdl_tick(void *userdata) {
   // Overwrite the player buttons if a movie exists with remaining frames
   advance_movie(fe);
 
+#ifdef USE_SDL2
+  poll_gamepad(fe);
+#endif
+
   if (fe->smb_gl) {
     SMB_tick(smb_state);
+    apply_classic_rules(smb_state);
+
+    int draw_w = 0;
+    int draw_h = 0;
+#ifdef USE_SDL2
+    SDL_GL_GetDrawableSize(fe->window, &draw_w, &draw_h);
+#else
+    SDL_GetWindowSizeInPixels(fe->window, &draw_w, &draw_h);
+#endif
+    SMBgl_set_viewport(fe->smb_gl, draw_w, draw_h);
 
     if (!SMBgl_render_frame(fe->smb_gl)) {
       log_error("Error rendering GL frame");
@@ -320,15 +428,35 @@ int sdl_tick(void *userdata) {
     SMBraster_set_buffer(fe->smb_raster, surf->pixels, fe->pixels_stride);
     SMBraster_clear(fe->smb_raster);
     SMB_tick(smb_state);
+    apply_classic_rules(smb_state);
 
     SDL_UnlockSurface(surf);
 
     const SDL_Rect srcrect = {0, 0, 256, 240};
-    SDL_Rect dstrect = {0, 0, 256 * fe->video_scale, 240 * fe->video_scale};
+    SDL_Surface *win_surf = SDL_GetWindowSurface(fe->window);
+    const int win_w = win_surf->w;
+    const int win_h = win_surf->h;
+
+    int dst_w = win_w;
+    int dst_h = (win_w * 240) / 256;
+    if (dst_h > win_h) {
+      dst_h = win_h;
+      dst_w = (win_h * 256) / 240;
+    }
+
+    SDL_Rect dstrect = {
+      (win_w - dst_w) / 2,
+      (win_h - dst_h) / 2,
+      dst_w,
+      dst_h
+    };
+
 #ifdef USE_SDL2
-    SDL_BlitScaled(surf, &srcrect, SDL_GetWindowSurface(fe->window), &dstrect);
+    SDL_FillRect(win_surf, NULL, 0);
+    SDL_BlitScaled(surf, &srcrect, win_surf, &dstrect);
 #else
-    SDL_BlitSurfaceScaled(surf, &srcrect, SDL_GetWindowSurface(fe->window), &dstrect, SDL_SCALEMODE_NEAREST);
+    SDL_FillSurfaceRect(win_surf, NULL, 0);
+    SDL_BlitSurfaceScaled(surf, &srcrect, win_surf, &dstrect, SDL_SCALEMODE_NEAREST);
 #endif
 
     SDL_UpdateWindowSurface(fe->window);
@@ -454,10 +582,26 @@ int main(int argc, char *argv[]) {
     fe->video_scale = cfg.graphics.video_scale;
   }
 
+  fe->fullscreen = cfg.graphics.fullscreen;
+
 #ifdef USE_SDL2
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
     log_error("Could not initialize SDL video: %s", SDL_GetError());
     goto exit;
+  }
+
+  if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) < 0) {
+    log_info("Gamepad subsystem unavailable: %s", SDL_GetError());
+  } else {
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+      if (SDL_IsGameController(i)) {
+        fe->gamecontroller = SDL_GameControllerOpen(i);
+        if (fe->gamecontroller) {
+          log_info("Gamepad connected: %s", SDL_GameControllerName(fe->gamecontroller));
+          break;
+        }
+      }
+    }
   }
 #else
   if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -468,9 +612,14 @@ int main(int argc, char *argv[]) {
 
 #ifdef USE_SDL2
   SDL_WindowFlags window_flags = SDL_WINDOW_SHOWN;
+  if (fe->fullscreen) {
+    window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+  }
 #else
-  // No flags set
   SDL_WindowFlags window_flags = 0;
+  if (fe->fullscreen) {
+    window_flags |= SDL_WINDOW_FULLSCREEN;
+  }
 #endif
 
 #ifdef OPENGL_ENABLED
@@ -685,6 +834,12 @@ exit:
       movie_fini(fe->movie);
       free(fe->movie);
     }
+#ifdef USE_SDL2
+    if (fe->gamecontroller) {
+      SDL_GameControllerClose(fe->gamecontroller);
+      fe->gamecontroller = NULL;
+    }
+#endif
     if (fe->window) {
       SDL_DestroyWindow(fe->window);
     }

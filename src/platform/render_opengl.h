@@ -21,6 +21,9 @@ void SMBgl_update_palette(struct SMBgl *gl, const unsigned char *palette_indices
 void SMBgl_update_pattern_tables(struct SMBgl *gl, const unsigned char *chrrom);
 void SMBgl_draw_tile(struct SMBgl *gl, const struct SMB_tile tile);
 
+// Set a centered 4:3 viewport inside the drawable area.
+void SMBgl_set_viewport(struct SMBgl *gl, int width, int height);
+
 bool SMBgl_render_frame(struct SMBgl *gl);
 
 #endif

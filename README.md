@@ -16,6 +16,41 @@ The other player appears as a **ghost**: you can see their position and animatio
 
 This is intentionally **not** a shared-world co-op and **not** split-screen. Each player has their own camera on their own device. It is inspired by the ghost online mode of *Super Mario Bros. Wonder*.
 
+## Current status
+
+Implemented in the Windows build:
+
+- Infinite lives.
+- No time limit (timer frozen at 999).
+- Keyboard and SDL2 gamepad support.
+- Fullscreen toggle with **F11** (aspect-correct 4:3).
+
+Still planned:
+
+- Ghost-style online co-op.
+- Shared power-ups.
+- Eco blocks.
+- Level-completion waits and the death/respawn rules.
+
+## Controls
+
+Keyboard:
+
+- `W A S D` — move
+- `J` — run / fire (B)
+- `K` — jump (A)
+- `Enter` — Start
+- `\` — Select
+- `F11` — fullscreen
+
+Gamepad (SDL2, first controller):
+
+- D-pad or left stick — move
+- `A` — jump
+- `B` or `X` — run / fire
+- `Start` — Start
+- `Back` — Select
+
 ## Planned co-op rules
 
 - **Online only.** No local co-op.

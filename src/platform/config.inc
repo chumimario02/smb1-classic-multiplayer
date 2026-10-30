@@ -16,6 +16,7 @@ section(debug,
 section(graphics,
         cbool(opengl)
         cbool(software)
+        cbool(fullscreen)
         cint(video_scale));
 
 section(audio,

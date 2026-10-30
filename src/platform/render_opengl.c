@@ -197,6 +197,24 @@ void SMBgl_draw_tile(struct SMBgl *gl, const struct SMB_tile tile) {
   }
 }
 
+void SMBgl_set_viewport(struct SMBgl *gl, int width, int height) {
+  (void)gl;
+
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  int vw = width;
+  int vh = (width * 240) / 256;
+
+  if (vh > height) {
+    vh = height;
+    vw = (height * 256) / 240;
+  }
+
+  glViewport((width - vw) / 2, (height - vh) / 2, vw, vh);
+}
+
 bool SMBgl_render_frame(struct SMBgl *gl) {
 
   // opengl
