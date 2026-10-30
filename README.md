@@ -21,7 +21,7 @@ This is intentionally **not** a shared-world co-op and **not** split-screen. Eac
 Implemented in the Windows build:
 
 - Infinite lives.
-- No time limit (timer frozen at 999).
+- No time limit (timer frozen at 999) and no time bonus at the flagpole.
 - Keyboard and SDL2 gamepad support.
 - Fullscreen toggle with **F11** (aspect-correct 4:3).
 - Windows build launches as a GUI app, with no extra console window.

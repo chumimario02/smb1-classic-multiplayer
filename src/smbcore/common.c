@@ -7479,12 +7479,9 @@ void RunStarFlagObj(const u8 objoff) {
     return;
   }
   if (param_1 == STARFLAGTASK_UNK_2) {
-    // AwardGameTimerPoints(objoff);
-    if (GameTimerDisplay[0] == 0 && GameTimerDisplay[1] == 0 && GameTimerDisplay[2] == 0) {
-      StarFlagTaskControl = STARFLAGTASK_UNK_3;
-    } else {
-      AwardTimerCastle();
-    }
+    // Infinite-time mode: skip the end-of-level time bonus entirely.
+    // Otherwise the frozen 999 timer would count down for several minutes.
+    StarFlagTaskControl = STARFLAGTASK_UNK_3;
     return;
   }
   if (param_1 == STARFLAGTASK_UNK_3) {

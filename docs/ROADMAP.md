@@ -49,6 +49,7 @@
 
 - [x] Vidas infinitas.
 - [x] Congelar el tiempo y desactivar hurry-up/muerte por tiempo.
+- [x] Sin bonus de tiempo al terminar el nivel.
 - [ ] Espera en la bandera y avance conjunto.
 - [ ] Muerte con respawn al lado del amigo.
 - [ ] Si el segundo muere tras terminar el primero, ambos avanzan.
