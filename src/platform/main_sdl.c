@@ -307,11 +307,11 @@ static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, boo
 
     case SDL_SCANCODE_Q:
 #ifdef USE_SDL2
-      if ((SDL_GetModState() & KMOD_ALT) != 0 && fe->fullscreen) {
+      if ((SDL_GetModState() & KMOD_ALT) != 0) {
 #else
-      if ((SDL_GetModState() & SDL_KMOD_ALT) != 0 && fe->fullscreen) {
+      if ((SDL_GetModState() & SDL_KMOD_ALT) != 0) {
 #endif
-        set_fullscreen(fe, false);
+        set_fullscreen(fe, !fe->fullscreen);
       }
       break;
 

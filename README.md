@@ -43,7 +43,7 @@ Keyboard:
 - `Enter` — Start
 - `\` — Select
 - `F11` — toggle fullscreen
-- `Alt+Q` — exit fullscreen
+- `Alt+Q` — toggle fullscreen
 
 Gamepad (SDL2, first controller):
 
