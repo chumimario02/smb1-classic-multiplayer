@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "smbcore/mario.h"
 #include "movie.h"
+#include "render_common.h"
 #include "render_opengl.h"
 #include "render_raster.h"
 #include "timer.h"
@@ -446,24 +447,9 @@ int sdl_tick(void *userdata) {
 
     SDL_UnlockSurface(surf);
 
-    const SDL_Rect srcrect = {0, 0, 256, 240};
+    const SDL_Rect srcrect = {0, 0, SMB_RENDER_WIDTH, SMB_RENDER_HEIGHT};
     SDL_Surface *win_surf = SDL_GetWindowSurface(fe->window);
-    const int win_w = win_surf->w;
-    const int win_h = win_surf->h;
-
-    int dst_w = win_w;
-    int dst_h = (win_w * 240) / 256;
-    if (dst_h > win_h) {
-      dst_h = win_h;
-      dst_w = (win_h * 256) / 240;
-    }
-
-    SDL_Rect dstrect = {
-      (win_w - dst_w) / 2,
-      (win_h - dst_h) / 2,
-      dst_w,
-      dst_h
-    };
+    SDL_Rect dstrect = {0, 0, win_surf->w, win_surf->h};
 
 #ifdef USE_SDL2
     SDL_FillRect(win_surf, NULL, 0);
@@ -647,9 +633,9 @@ int main(int argc, char *argv[]) {
 #endif
 
 #ifdef USE_SDL2
-  fe->window = SDL_CreateWindow("SMB Vanilla", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 256 * fe->video_scale, 240 * fe->video_scale, window_flags);
+  fe->window = SDL_CreateWindow("SMB Vanilla", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SMB_RENDER_WIDTH * fe->video_scale, SMB_RENDER_HEIGHT * fe->video_scale, window_flags);
 #else
-  fe->window = SDL_CreateWindow("SMB Vanilla", 256 * fe->video_scale, 240 * fe->video_scale, window_flags);
+  fe->window = SDL_CreateWindow("SMB Vanilla", SMB_RENDER_WIDTH * fe->video_scale, SMB_RENDER_HEIGHT * fe->video_scale, window_flags);
 #endif
   if (!fe->window) {
     log_error("Could not create SDL window: %s", SDL_GetError());
@@ -707,15 +693,15 @@ int main(int argc, char *argv[]) {
 
   if (fe->smb_raster) {
 #ifdef USE_SDL2
-    fe->surf = SDL_CreateRGBSurface(0, 256, 240, 24, 0x0000FF, 0x00FF00, 0xFF0000, 0);
+    fe->surf = SDL_CreateRGBSurface(0, SMB_RENDER_WIDTH, SMB_RENDER_HEIGHT, 24, 0x0000FF, 0x00FF00, 0xFF0000, 0);
 #else
-    fe->surf = SDL_CreateSurface(256, 240, SDL_PIXELFORMAT_RGB24);
+    fe->surf = SDL_CreateSurface(SMB_RENDER_WIDTH, SMB_RENDER_HEIGHT, SDL_PIXELFORMAT_RGB24);
 #endif
     if (!fe->surf) {
       log_error("Could not create SDL surface: %s", SDL_GetError());
       goto exit;
     }
-    fe->pixels_stride = 256;
+    fe->pixels_stride = SMB_RENDER_WIDTH;
   }
 
 

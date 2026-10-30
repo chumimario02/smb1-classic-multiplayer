@@ -13,7 +13,7 @@
 
 - [x] Build reproducible con Meson + SDL3 (o SDL2).
 - [x] Configuración de mandito y teclado.
-- [x] Pantalla completa y escalado 4:3.
+- [x] Pantalla completa con imagen estirada.
 - [ ] Primer arranque sin ROM: mensaje claro para seleccionar `smb.nes`.
 - [x] Medir rendimiento y estabilidad.
 

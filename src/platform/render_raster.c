@@ -1,7 +1,8 @@
-// Functions to render SMB to a 256x240 RGB buffer in software.
+// Functions to render SMB to an SMB_RENDER_WIDTH x SMB_RENDER_HEIGHT RGB buffer in software.
 // About as simple as it gets.
 
 #include "smbcore/mario.h"
+#include "render_common.h"
 #include "render_raster.h"
 
 #include <string.h>
@@ -77,7 +78,7 @@ void SMBraster_draw_tile(struct SMBraster *r, const struct SMB_tile tile) {
       if (ii < 0 || ii >= 240) {
         continue;
       }
-      if (jj < 0 || jj >= 256) {
+      if (jj < 0 || jj >= SMB_RENDER_WIDTH) {
         continue;
       }
 
@@ -100,7 +101,7 @@ void SMBraster_set_buffer(struct SMBraster *r, unsigned char *rgb_pixels, int st
 
 void SMBraster_clear(struct SMBraster *r) {
   // fill every pixel with the background color
-  for (int i = 0; i < 256*240; i++) {
+  for (int i = 0; i < SMB_RENDER_WIDTH*SMB_RENDER_HEIGHT; i++) {
     r->pixels[i] = r->palette[r->palette_indices[0x10]];
   }
 }
