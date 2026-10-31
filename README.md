@@ -120,7 +120,7 @@ meson compile -C build
 
 ## Online server
 
-The planned room/relay server is [smb1r-online-server](https://github.com/chumimario02/smb1r-online-server): room codes plus a WebSocket relay. The client will send ghost state at a low rate (around 10 Hz) and discrete events for power-ups, eco blocks and revives. It is not wired into the game yet.
+The planned room/relay server lives in its own repository: [smb1-classic-multiplayer-server](https://github.com/chumimario02/smb1-classic-multiplayer-server). It provides room codes plus a WebSocket relay. The client will send ghost state at a low rate (around 10 Hz) and discrete events for power-ups, eco blocks and revives. It is not wired into the game yet.
 
 ## Credits and license
 
