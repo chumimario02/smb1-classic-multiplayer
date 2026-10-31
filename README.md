@@ -135,8 +135,22 @@ Implemented in the client:
 - In-game status overlay (`SALA XXXX`, `AMIGO CONECTADO`).
 
 The ghost is visual only: it follows the other player's position and animation,
-but does not collide with your world. Shared power-ups and eco blocks are the
-next phases.
+but does not collide with your world.
+
+### Co-op rules
+
+- **Shared power-ups:** when one player grabs a mushroom, fire flower or star,
+  the other player gets the same upgrade in their own world.
+- **No shared damage:** only the player who is hit loses their power.
+- **Flag wait:** after touching the flagpole the level-end sequence stops and
+  you wait for your partner. It resumes when they finish (or after 60 seconds,
+  or if they disconnect or die).
+- **Death respawn:** after dying you reappear next to your partner when they are
+  close enough; otherwise you respawn at the normal checkpoint.
+- **Different levels:** the ghost is hidden while the two of you are in
+  different levels.
+
+Eco blocks are the next phase.
 
 From the main menu choose **Multiplayer**:
 

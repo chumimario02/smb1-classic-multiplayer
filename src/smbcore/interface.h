@@ -12,6 +12,9 @@ struct SMB_state {
   int which_game;
   bool reset_occurred;
   bool return_to_title;
+  // When true, the player stays at the flagpole after finishing a level instead
+  // of advancing, so the online partner can catch up.
+  bool hold_at_flag;
   u8 start_on_world;
   u8 start_on_level;
 

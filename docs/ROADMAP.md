@@ -37,10 +37,10 @@
 
 ## Fase 4 — Poderes compartidos
 
-- [ ] Evento al agarrar un power-up.
-- [ ] Aplicar el poder en el mundo del otro jugador.
-- [ ] Regla de daño (solo el golpeado pierde el poder).
-- [ ] Pruebas con seta, flor y estrella.
+- [x] Evento al agarrar un power-up.
+- [x] Aplicar el poder en el mundo del otro jugador.
+- [x] Regla de daño (solo el golpeado pierde el poder).
+- [ ] Pruebas con seta, flor y estrella (seta probada; flor y estrella pendientes).
 
 ## Fase 5 — Bloques eco
 
@@ -54,10 +54,10 @@
 - [x] Vidas infinitas.
 - [x] Congelar el tiempo y desactivar hurry-up/muerte por tiempo.
 - [x] Sin bonus de tiempo al terminar el nivel.
-- [ ] Espera en la bandera y avance conjunto.
-- [ ] Muerte con respawn al lado del amigo.
-- [ ] Si el segundo muere tras terminar el primero, ambos avanzan.
-- [ ] Timeout si el que espera se desconecta.
+- [x] Espera en la bandera y avance conjunto.
+- [x] Muerte con respawn al lado del amigo.
+- [x] Si el segundo muere tras terminar el primero, ambos avanzan.
+- [x] Timeout si el que espera se desconecta (60 s o pérdida de conexión).
 
 ## Fase 7 — Raspberry Pi Zero 2 W
 

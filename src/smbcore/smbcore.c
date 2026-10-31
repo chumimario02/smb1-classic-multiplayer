@@ -4,6 +4,7 @@
 #include "base.h"
 #include "interface.h"
 #include "vars.h"
+#include "consts.h"
 
 #include <string.h>
 
@@ -210,6 +211,47 @@ void SMB_ram_finishwrite(struct SMB_state *state) {
   if (state->which_game == GAME_SMB2J) {
     smb2j_sync_data();
   }
+}
+
+void smb1_GetPlayerColors(void);
+
+void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
+  state->hold_at_flag = hold;
+}
+
+void SMB_give_power(struct SMB_state *state, int power) {
+  if (state->which_game != GAME_SMB1) {
+    return;
+  }
+
+  // The macros below read the global SMB_STATE.
+  SMB_STATE = state;
+
+  if (power == 3) {
+    // Star: temporary invincibility.
+    StarInvincibleTimer = 0x23;
+    return;
+  }
+
+  if (power < 1 || power > 2) {
+    return;
+  }
+
+  if (PlayerStatus >= power) {
+    return; // never downgrade
+  }
+
+  if (GameEngineSubroutine != GR_UNK_8) {
+    return; // only while the player is in normal control
+  }
+
+  PlayerStatus = (u8)power;
+  Player_State = PLAYERSTATE_UNK_0;
+  TimerControl = 0xff;
+  ScrollAmount = 0;
+  GameEngineSubroutine = (power == 2) ? GR_UNK_12 : GR_UNK_9;
+
+  smb1_GetPlayerColors();
 }
 
 void SMB_tick(struct SMB_state *state) {

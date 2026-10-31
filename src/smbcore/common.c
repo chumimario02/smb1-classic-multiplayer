@@ -2791,6 +2791,10 @@ void PlayerEndLevel(void) {
   if (StarFlagTaskControl != STARFLAGTASK_UNK_5) {
     return;
   }
+  if (SMB_STATE->hold_at_flag) {
+    // Online co-op: wait at the flag for the other player.
+    return;
+  }
   LevelNumber += 1;
 #ifdef SMB1_MODE
   if (LevelNumber == 3 && CoinTallyFor1Ups >= Hidden1UpCoinAmts[WorldNumber]) {

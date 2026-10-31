@@ -76,6 +76,14 @@ u8 *SMB_ppuram(struct SMB_state *state);
 // Call this after updating the RAM via SMB_ram().
 void SMB_ram_finishwrite(struct SMB_state *state);
 
+// Online co-op helpers.
+// Keep the player waiting at the flagpole (level already finished) instead of
+// advancing to the next level.
+void SMB_set_hold_at_flag(struct SMB_state *state, bool hold);
+// Give the player a power-up as if they had collected it: 1 = mushroom,
+// 2 = fire flower, 3 = star.
+void SMB_give_power(struct SMB_state *state, int power);
+
 #ifdef __cplusplus
 }
 #endif

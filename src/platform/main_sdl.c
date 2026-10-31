@@ -95,10 +95,27 @@ struct frontend_userdata {
   bool ghost_valid;
   int ghost_x;
   int ghost_y;
+  int ghost_level;
   int ghost_draw_x;
   int ghost_draw_y;
   int ghost_sprite_count;
   int ghost_sprites[8][4];
+
+  // Online co-op state
+  int coop_level;
+  int coop_last_status;
+  int coop_last_star;
+  bool coop_clear_sent;
+  bool coop_local_cleared;
+  bool coop_peer_cleared;
+  bool coop_peer_dead;
+  bool coop_hold;
+  uint32_t coop_wait_start_ms;
+  bool coop_dead_sent;
+  bool coop_teleport_pending;
+  int coop_teleport_level;
+  int coop_teleport_x;
+  int coop_teleport_y;
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
@@ -508,6 +525,18 @@ static void start_online(struct frontend_userdata *fe, bool host, const char *ro
   fe->netplay = netplay_create(&npcfg);
   fe->menu = MENU_GAME;
   SMB_return_to_title(fe->smb_state);
+
+  // Start from the current power state so joining does not spam an upgrade.
+  u8 *ram = SMB_ram(fe->smb_state);
+  fe->coop_last_status = ram[0x0756];
+  fe->coop_last_star = ram[0x079F];
+  fe->coop_clear_sent = false;
+  fe->coop_local_cleared = false;
+  fe->coop_peer_cleared = false;
+  fe->coop_peer_dead = false;
+  fe->coop_dead_sent = false;
+  fe->coop_teleport_pending = false;
+  fe->coop_hold = false;
 }
 
 static void return_to_main_menu(struct frontend_userdata *fe) {
@@ -515,6 +544,10 @@ static void return_to_main_menu(struct frontend_userdata *fe) {
     netplay_destroy(fe->netplay);
     fe->netplay = NULL;
   }
+
+  SMB_set_hold_at_flag(fe->smb_state, false);
+  fe->coop_hold = false;
+  fe->ghost_valid = false;
 
   u8 *ram = SMB_ram(fe->smb_state);
   ram[0x0776] = 0;
@@ -601,11 +634,12 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
   // relative to the player's *screen* position, not to its world position.
   const int screen_x = (abs_x - cam_abs) & 0xFF;
   const int base = 0x0200 + spr_off;
+  const int level = ram[0x075F] * 10 + ram[0x075C];
 
   char data[768];
   int n = snprintf(data, sizeof(data),
-                   "{\"kind\":\"g\",\"x\":%d,\"y\":%d,\"s\":[",
-                   abs_x, py);
+                   "{\"kind\":\"g\",\"l\":%d,\"x\":%d,\"y\":%d,\"s\":[",
+                   level, abs_x, py);
 
   int count = 0;
   for (int i = 0; i < 8; i++) {
@@ -647,6 +681,9 @@ static void parse_ghost_data(struct frontend_userdata *fe, const char *json) {
   if (!p) return;
   const int y = atoi(p + 4);
 
+  p = strstr(json, "\"l\":");
+  fe->ghost_level = p ? atoi(p + 4) : -1;
+
   fe->ghost_x = x;
   fe->ghost_y = y;
 
@@ -686,6 +723,42 @@ static void parse_ghost_data(struct frontend_userdata *fe, const char *json) {
   fe->ghost_valid = true;
 }
 
+static void handle_relay(struct frontend_userdata *fe, const char *json) {
+  if (!json || json[0] != '{') {
+    return;
+  }
+
+  if (strstr(json, "\"kind\":\"g\"")) {
+    parse_ghost_data(fe, json);
+    return;
+  }
+
+  if (strstr(json, "\"kind\":\"clr\"")) {
+    const char *l = strstr(json, "\"l\":");
+    const int level = l ? atoi(l + 4) : -1;
+    u8 *ram = SMB_ram(fe->smb_state);
+    const int local = ram[0x075F] * 10 + ram[0x075C];
+
+    if (level < 0 || level == local) {
+      fe->coop_peer_cleared = true;
+    }
+    return;
+  }
+
+  if (strstr(json, "\"kind\":\"dead\"")) {
+    fe->coop_peer_dead = true;
+    return;
+  }
+
+  if (strstr(json, "\"kind\":\"pw\"")) {
+    const char *p = strstr(json, "\"p\":");
+    if (p) {
+      SMB_give_power(fe->smb_state, atoi(p + 4));
+    }
+    return;
+  }
+}
+
 static void update_ghost(struct frontend_userdata *fe) {
   if (!fe->netplay || !netplay_has_peer(fe->netplay)) {
     fe->ghost_valid = false;
@@ -697,7 +770,137 @@ static void update_ghost(struct frontend_userdata *fe) {
     return;
   }
 
-  parse_ghost_data(fe, relay);
+  handle_relay(fe, relay);
+}
+
+// True when the local player has reached the flagpole and is finishing the level.
+static bool player_finished_level(const u8 *ram) {
+  const u8 gr = ram[0x000E];
+  return gr == 4 || gr == 5; // FlagpoleSlide / PlayerEndLevel
+}
+
+static bool player_is_dead(const u8 *ram) {
+  const u8 gr = ram[0x000E];
+  return gr == 6 || gr == 11; // PlayerLoseLife / PlayerDeath
+}
+
+static void send_coop_event(struct frontend_userdata *fe, const char *json) {
+  if (!fe->netplay || !netplay_joined(fe->netplay) || !netplay_has_peer(fe->netplay)) {
+    return;
+  }
+  netplay_send_relay(fe->netplay, json);
+}
+
+// Moves the local player next to the partner after dying, when the partner is
+// close enough that the level data around them is already loaded.
+static void apply_death_teleport(struct frontend_userdata *fe, u8 *ram) {
+  if (!fe->coop_teleport_pending || fe->coop_teleport_level != fe->coop_level) {
+    fe->coop_teleport_pending = false;
+    return;
+  }
+
+  const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
+  const int target = fe->coop_teleport_x;
+
+  if (target < 0 || abs(target - cam_abs) > 256) {
+    fe->coop_teleport_pending = false; // too far: keep the normal respawn
+    return;
+  }
+
+  fe->coop_teleport_pending = false;
+
+  ram[0x006D] = (u8)((target >> 8) & 0xFF);   // Player_PageLoc
+  ram[0x0086] = (u8)(target & 0xFF);          // Player_X_Position
+  ram[0x00CE] = (u8)fe->coop_teleport_y;      // Player_Y_Position
+  ram[0x001D] = 0;                            // Player_State: on ground
+  ram[0x0057] = 0;                            // Player_X_Speed
+  ram[0x009F] = 0;                            // Player_Y_Speed
+  ram[0x0723] = 0;                            // ScrollLock
+
+  int cam = target - 112;
+  if (cam < 0) cam = 0;
+  ram[0x071A] = (u8)((cam >> 8) & 0xFF);
+  ram[0x071C] = (u8)(cam & 0xFF);
+}
+
+static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
+  u8 *ram = SMB_ram(fe->smb_state);
+  const int level = ram[0x075F] * 10 + ram[0x075C];
+  const bool online = fe->netplay && netplay_joined(fe->netplay) &&
+                      netplay_has_peer(fe->netplay);
+
+  // New level: forget the previous one's clear/death state.
+  if (level != fe->coop_level) {
+    fe->coop_level = level;
+    fe->coop_local_cleared = false;
+    fe->coop_peer_cleared = false;
+    fe->coop_peer_dead = false;
+    fe->coop_clear_sent = false;
+    fe->coop_dead_sent = false;
+    fe->coop_hold = false;
+    fe->coop_wait_start_ms = now_ms;
+    fe->coop_teleport_pending = false;
+  }
+
+  // Shared power-ups: announce upgrades so the partner gets them too.
+  if (online) {
+    const int status = ram[0x0756];
+    if (status > fe->coop_last_status) {
+      char msg[64];
+      snprintf(msg, sizeof(msg), "{\"kind\":\"pw\",\"p\":%d}", status);
+      send_coop_event(fe, msg);
+    }
+    fe->coop_last_status = status;
+
+    const int star = ram[0x079F];
+    if (star > fe->coop_last_star) {
+      send_coop_event(fe, "{\"kind\":\"pw\",\"p\":3}");
+    }
+    fe->coop_last_star = star;
+  }
+
+  // Reaching the flag: tell the partner and wait for them.
+  const bool finished = player_finished_level(ram);
+
+  if (finished && online && !fe->coop_clear_sent) {
+    char msg[64];
+    snprintf(msg, sizeof(msg), "{\"kind\":\"clr\",\"l\":%d}", level);
+    send_coop_event(fe, msg);
+    fe->coop_clear_sent = true;
+    fe->coop_local_cleared = true;
+    fe->coop_wait_start_ms = now_ms;
+  } else if (finished) {
+    fe->coop_local_cleared = true;
+  } else if (!finished && !fe->coop_hold) {
+    fe->coop_local_cleared = false;
+    fe->coop_clear_sent = false;
+  }
+
+  const bool waited_too_long = now_ms - fe->coop_wait_start_ms > 60000;
+
+  fe->coop_hold = online && fe->coop_local_cleared && !fe->coop_peer_cleared &&
+                  fe->coop_peer_dead == false && !waited_too_long;
+
+  SMB_set_hold_at_flag(fe->smb_state, fe->coop_hold);
+
+  // Death: remember where the partner was, and teleport there on respawn.
+  if (online && player_is_dead(ram)) {
+    if (!fe->coop_dead_sent) {
+      send_coop_event(fe, "{\"kind\":\"dead\"}");
+      fe->coop_dead_sent = true;
+      fe->coop_teleport_pending = fe->ghost_valid && fe->ghost_level == level;
+      fe->coop_teleport_level = level;
+      fe->coop_teleport_x = fe->ghost_x;
+      fe->coop_teleport_y = fe->ghost_y;
+    }
+  } else if (!player_is_dead(ram)) {
+    if (fe->coop_teleport_pending) {
+      apply_death_teleport(fe, ram);
+    }
+    if (fe->coop_dead_sent && ram[0x000E] == 8) {
+      fe->coop_dead_sent = false;
+    }
+  }
 }
 
 static void draw_ghost(struct frontend_userdata *fe) {
@@ -706,6 +909,11 @@ static void draw_ghost(struct frontend_userdata *fe) {
   }
 
   u8 *ram = SMB_ram(fe->smb_state);
+  const int level = ram[0x075F] * 10 + ram[0x075C];
+  if (fe->ghost_level >= 0 && fe->ghost_level != level) {
+    return; // partner is in another level
+  }
+
   const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
 
   const int dx = fe->ghost_x - fe->ghost_draw_x;
@@ -1000,6 +1208,7 @@ int sdl_tick(void *userdata) {
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
     update_ghost(fe);
+    update_coop(fe, SDL_GetTicks());
     draw_ghost(fe);
     update_pause_menu(fe);
     if (fe->pause_menu_active) {
@@ -1037,6 +1246,7 @@ int sdl_tick(void *userdata) {
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
     update_ghost(fe);
+    update_coop(fe, SDL_GetTicks());
     draw_ghost(fe);
     update_pause_menu(fe);
     if (fe->pause_menu_active) {
