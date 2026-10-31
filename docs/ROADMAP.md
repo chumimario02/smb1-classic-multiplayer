@@ -24,7 +24,8 @@
 - [x] Cliente WebSocket en C.
 - [x] Conexión de dos clientes y relay de mensajes.
 - [x] Estado de conexión en pantalla.
-- [ ] Pantalla de lobby: crear/unirse por código (por ahora por línea de comandos).
+- [x] Menú principal (Singleplayer / Multiplayer).
+- [x] Menú de multijugador: Host Game / Join Game con código de 4 letras.
 
 ## Fase 3 — Fantasma remoto
 

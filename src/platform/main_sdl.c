@@ -14,6 +14,7 @@
 #endif
 #include "palette_builtin.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,12 +73,23 @@ struct sdl_key_scancodes {
   SDL_Scancode u,d,l,r,select,start,b,a;
 };
 
+enum menu_state {
+  MENU_MAIN,
+  MENU_MULTIPLAYER,
+  MENU_JOIN,
+  MENU_GAME
+};
+
 struct frontend_userdata {
   FILE *romfile;
   struct SMB_state *smb_state;
   struct SMB_audio *audio;
   struct Movie *movie;
   struct netplay *netplay;
+  enum menu_state menu;
+  int menu_selection;
+  char join_code[8];
+  int join_code_len;
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
@@ -358,10 +370,198 @@ static void draw_online_status(struct frontend_userdata *fe) {
   }
 }
 
+static void ensure_menu_palette(struct frontend_userdata *fe) {
+  u8 *ppu = SMB_ppuram(fe->smb_state);
+
+  for (int i = 0; i < 32; i++) {
+    ppu[0x3F00 + i] = 0x0F;
+  }
+
+  // Palette 2: black background, white text.
+  ppu[0x3F08] = 0x0F;
+  ppu[0x3F09] = 0x30;
+  ppu[0x3F0A] = 0x30;
+  ppu[0x3F0B] = 0x0F;
+
+  if (fe->smb_gl) {
+    SMBgl_update_palette(fe->smb_gl, ppu + 0x3F00);
+  } else if (fe->smb_raster) {
+    SMBraster_update_palette(fe->smb_raster, ppu + 0x3F00);
+  }
+}
+
+static void draw_menu(struct frontend_userdata *fe) {
+  ensure_menu_palette(fe);
+
+  draw_font_text(fe, 80, 56, "SMB1 CLASSIC", 2);
+
+  if (fe->menu == MENU_MAIN) {
+    draw_font_text(fe, 80, 112, "SINGLEPLAYER", 2);
+    draw_font_text(fe, 84, 136, "MULTIPLAYER", 2);
+
+    const int y = fe->menu_selection == 0 ? 112 : 136;
+    draw_font_text(fe, fe->menu_selection == 0 ? 64 : 68, y, "-", 2);
+    draw_font_text(fe, 72, 184, "ENTER = ELEGIR", 2);
+  } else if (fe->menu == MENU_MULTIPLAYER) {
+    draw_font_text(fe, 84, 96, "MULTIPLAYER", 2);
+    draw_font_text(fe, 88, 120, "HOST GAME", 2);
+    draw_font_text(fe, 88, 144, "JOIN GAME", 2);
+    draw_font_text(fe, 108, 168, "BACK", 2);
+
+    const int y = 120 + fe->menu_selection * 24;
+    const int x = fe->menu_selection == 2 ? 96 : 76;
+    draw_font_text(fe, x, y, "-", 2);
+  } else if (fe->menu == MENU_JOIN) {
+    draw_font_text(fe, 88, 96, "JOIN GAME", 2);
+    draw_font_text(fe, 88, 128, "CODE:", 2);
+
+    for (int i = 0; i < 4; i++) {
+      char c[2];
+      c[0] = fe->join_code_len > i ? fe->join_code[i] : '-';
+      c[1] = 0;
+      draw_font_text(fe, 136 + i * 8, 128, c, 2);
+    }
+
+    draw_font_text(fe, 64, 168, "ENTER = CONECTAR", 2);
+    draw_font_text(fe, 80, 192, "ESC = VOLVER", 2);
+  }
+}
+
+static int present_menu(struct frontend_userdata *fe) {
+  if (fe->smb_gl) {
+    draw_menu(fe);
+
+    int draw_w = 0;
+    int draw_h = 0;
+#ifdef USE_SDL2
+    SDL_GL_GetDrawableSize(fe->window, &draw_w, &draw_h);
+#else
+    SDL_GetWindowSizeInPixels(fe->window, &draw_w, &draw_h);
+#endif
+    SMBgl_set_viewport(fe->smb_gl, draw_w, draw_h);
+
+    if (!SMBgl_render_frame(fe->smb_gl)) {
+      return 1;
+    }
+
+    SDL_GL_SwapWindow(fe->window);
+    return 0;
+  }
+
+  if (!fe->smb_raster || !fe->surf) {
+    return 1;
+  }
+
+  SDL_LockSurface(fe->surf);
+  SMBraster_set_buffer(fe->smb_raster, fe->surf->pixels, fe->pixels_stride);
+  SMBraster_clear(fe->smb_raster);
+  draw_menu(fe);
+  SDL_UnlockSurface(fe->surf);
+
+  SDL_Surface *win_surf = SDL_GetWindowSurface(fe->window);
+  const SDL_Rect srcrect = {0, 0, SMB_RENDER_WIDTH, SMB_RENDER_HEIGHT};
+  SDL_Rect dstrect = {0, 0, win_surf->w, win_surf->h};
+#ifdef USE_SDL2
+  SDL_FillRect(win_surf, NULL, 0);
+  SDL_BlitScaled(fe->surf, &srcrect, win_surf, &dstrect);
+#else
+  SDL_FillSurfaceRect(win_surf, NULL, 0);
+  SDL_BlitSurfaceScaled(fe->surf, &srcrect, win_surf, &dstrect, SDL_SCALEMODE_NEAREST);
+#endif
+  SDL_UpdateWindowSurface(fe->window);
+
+  return 0;
+}
+
+static void start_singleplayer(struct frontend_userdata *fe) {
+  if (fe->netplay) {
+    netplay_destroy(fe->netplay);
+    fe->netplay = NULL;
+  }
+
+  fe->menu = MENU_GAME;
+  SMB_return_to_title(fe->smb_state);
+}
+
+static void start_online(struct frontend_userdata *fe, bool host, const char *room) {
+  if (fe->netplay) {
+    netplay_destroy(fe->netplay);
+    fe->netplay = NULL;
+  }
+
+  struct netplay_config npcfg;
+  memset(&npcfg, 0, sizeof(npcfg));
+  npcfg.server_url = fe->cfg->online_server;
+  npcfg.room = room;
+  npcfg.name = fe->cfg->online_name;
+  npcfg.host = host;
+
+  fe->netplay = netplay_create(&npcfg);
+  fe->menu = MENU_GAME;
+  SMB_return_to_title(fe->smb_state);
+}
+
+static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
+  if (fe->menu == MENU_MAIN) {
+    if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
+      fe->menu_selection = 0;
+    } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
+      fe->menu_selection = 1;
+    } else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) {
+      if (fe->menu_selection == 0) {
+        start_singleplayer(fe);
+      } else {
+        fe->menu = MENU_MULTIPLAYER;
+        fe->menu_selection = 0;
+      }
+    }
+  } else if (fe->menu == MENU_MULTIPLAYER) {
+    if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
+      if (fe->menu_selection > 0) fe->menu_selection--;
+    } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
+      if (fe->menu_selection < 2) fe->menu_selection++;
+    } else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) {
+      if (fe->menu_selection == 0) {
+        start_online(fe, true, NULL);
+      } else if (fe->menu_selection == 1) {
+        fe->menu = MENU_JOIN;
+        fe->join_code_len = 0;
+        fe->join_code[0] = 0;
+      } else {
+        fe->menu = MENU_MAIN;
+        fe->menu_selection = 0;
+      }
+    } else if (sc == SDL_SCANCODE_ESCAPE) {
+      fe->menu = MENU_MAIN;
+      fe->menu_selection = 0;
+    }
+  } else if (fe->menu == MENU_JOIN) {
+    if (sc == SDL_SCANCODE_BACKSPACE) {
+      if (fe->join_code_len > 0) {
+        fe->join_code[--fe->join_code_len] = 0;
+      }
+    } else if (sc == SDL_SCANCODE_RETURN) {
+      if (fe->join_code_len == 4) {
+        start_online(fe, false, fe->join_code);
+      }
+    } else if (sc == SDL_SCANCODE_ESCAPE) {
+      fe->menu = MENU_MULTIPLAYER;
+      fe->menu_selection = 1;
+    }
+  }
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
   struct SMB_state *smb_state = fe->smb_state;
+
+  if (fe->menu != MENU_GAME) {
+    if (isdown) {
+      handle_menu_key(fe, sc);
+    }
+    return 0;
+  }
 
   if (isdown) {
     u8 *ram = SMB_ram(smb_state);
@@ -465,6 +665,18 @@ int sdl_tick(void *userdata) {
       }
     break;
 
+    case SDL_TEXTINPUT:
+      if (fe->menu == MENU_JOIN) {
+        for (const char *p = eventData.text.text; *p; p++) {
+          const char c = (char)toupper((unsigned char)*p);
+          if (((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) && fe->join_code_len < 4) {
+            fe->join_code[fe->join_code_len++] = c;
+            fe->join_code[fe->join_code_len] = 0;
+          }
+        }
+      }
+      break;
+
     case SDL_CONTROLLERDEVICEADDED:
       if (!fe->gamecontroller && SDL_IsGameController(eventData.cdevice.which)) {
         fe->gamecontroller = SDL_GameControllerOpen(eventData.cdevice.which);
@@ -532,11 +744,27 @@ int sdl_tick(void *userdata) {
       }
     break;
 
+    case SDL_EVENT_TEXT_INPUT:
+      if (fe->menu == MENU_JOIN) {
+        for (const char *p = eventData.text.text; *p; p++) {
+          const char c = (char)toupper((unsigned char)*p);
+          if (((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) && fe->join_code_len < 4) {
+            fe->join_code[fe->join_code_len++] = c;
+            fe->join_code[fe->join_code_len] = 0;
+          }
+        }
+      }
+      break;
+
     case SDL_EVENT_QUIT:
       return 1;
     }
   }
 #endif
+
+  if (fe->menu != MENU_GAME) {
+    return present_menu(fe);
+  }
 
   // Overwrite the player buttons if a movie exists with remaining frames
   advance_movie(fe);
@@ -893,10 +1121,13 @@ int main(int argc, char *argv[]) {
     npcfg.host = cfg.online_host;
 
     fe->netplay = netplay_create(&npcfg);
+    fe->menu = MENU_GAME;
     log_info("Online: server=%s room=%s host=%d",
              cfg.online_server,
              cfg.online_room ? cfg.online_room : "(auto)",
              cfg.online_host);
+  } else {
+    fe->menu = MENU_MAIN;
   }
 
   log_info("Started!");

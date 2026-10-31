@@ -26,6 +26,8 @@ Implemented in the Windows build:
 - Fullscreen toggle with **F11**; the NES image is stretched to fill the window.
 - Windows build launches as a GUI app, with no extra console window.
 - In-game pause menu with **Continue** and **Title Screen** options.
+- Main menu with **Singleplayer** and **Multiplayer**.
+- Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
 
 Still planned:
 
@@ -133,7 +135,12 @@ Implemented in the client:
 
 Not implemented yet: ghost rendering, shared power-ups, eco blocks, lobby UI.
 
-Run two instances (Windows example):
+From the main menu choose **Multiplayer**:
+
+- **Host Game** creates a room and shows its 4-letter code.
+- **Join Game** lets you type the code and connect.
+
+The command-line path is still available for testing:
 
 ```sh
 # host
