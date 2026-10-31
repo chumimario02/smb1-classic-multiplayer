@@ -434,7 +434,7 @@ static void apply_skin(struct frontend_userdata *fe) {
     {0x16, 0x27, 0x18}, // MARIO: red shirt, skin, brown overalls
     {0x1A, 0x27, 0x18}, // LUIGI: green
     {0x21, 0x30, 0x11}, // HIELO: ice blue
-    {0x26, 0x30, 0x16}, // FUEGO: light red, white face, red overalls
+    {0x27, 0x30, 0x16}, // FUEGO: orange shirt, white face, red overalls
   };
 
   const int skin = fe->skin & 3;
