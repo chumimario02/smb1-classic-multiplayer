@@ -28,7 +28,7 @@ Implemented in the Windows build:
 - In-game pause menu with **Continue** and **Main Menu** options.
 - Main menu with **Singleplayer** and **Multiplayer**.
 - Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
-- Ghost rendering: the other player's Mario is sent at ~10 Hz and drawn in your level.
+- Ghost rendering: the other player's Mario is sent at ~30 Hz and drawn in your level.
 
 Still planned:
 
@@ -155,6 +155,24 @@ smbvanilla.exe smb.nes --online-join TEST --server ws://127.0.0.1:8080 --name CL
 
 For a remote server use `wss://your-server.example`. The status overlay appears
 at the top-left while online is active.
+
+## Troubleshooting on Windows
+
+**"This app has been blocked by your system administrator" / "Una directiva de
+Control de aplicaciones bloqueó este archivo"**
+
+Windows 11 enables **Smart App Control** automatically on clean installs. After a
+few days it switches from evaluation to enforced mode and blocks any unsigned
+executable without cloud reputation, which includes every freshly compiled build
+of this game. There is no per-app exclusion.
+
+Disable it once:
+
+*Settings → Privacy & security → Windows Security → App & browser control →
+Smart App Control → Off* (then reboot).
+
+Microsoft does not allow re-enabling it without reinstalling Windows, so read
+their warning before turning it off.
 
 ## Credits and license
 

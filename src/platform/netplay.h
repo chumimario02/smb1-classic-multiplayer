@@ -24,8 +24,7 @@ bool netplay_joined(const struct netplay *np);
 bool netplay_has_peer(const struct netplay *np);
 const char *netplay_room(const struct netplay *np);
 const char *netplay_error(const struct netplay *np);
-uint32_t netplay_relay_seq(const struct netplay *np);
-const char *netplay_last_relay(const struct netplay *np);
+bool netplay_get_relay(struct netplay *np, uint32_t *seq, char *out, size_t outsz);
 
 // Send a generic relay payload (JSON object) to the other player.
 void netplay_send_relay(struct netplay *np, const char *json_data);

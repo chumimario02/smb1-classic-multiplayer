@@ -42,6 +42,7 @@ struct netplay {
   char tx[TX_QUEUE][TX_MAX];
   int tx_head;
   int tx_tail;
+  SDL_mutex *lock;
 
   uint32_t last_ping_ms;
 };
@@ -141,17 +142,29 @@ static void set_error(struct netplay *np, const char *message) {
 }
 
 static void netplay_send_text(struct netplay *np, const char *text) {
+  if (!np->lock) {
+    return;
+  }
+
+  SDL_LockMutex(np->lock);
+
   const int next = (np->tx_tail + 1) % TX_QUEUE;
 
   if (next == np->tx_head) {
-    return; // queue full; drop oldest? just drop
+    SDL_UnlockMutex(np->lock);
+    return; // queue full; drop
   }
 
   snprintf(np->tx[np->tx_tail], TX_MAX, "%s", text);
   np->tx_tail = next;
 
+  SDL_UnlockMutex(np->lock);
+
   if (np->wsi && np->connected) {
     lws_callback_on_writable(np->wsi);
+    if (np->context) {
+      lws_cancel_service(np->context);
+    }
   }
 }
 
@@ -190,14 +203,19 @@ static void netplay_process_message(struct netplay *np) {
     const char *data = strstr(np->rx, "\"data\":");
     if (data) {
       data += 7;
-      snprintf(np->last_relay, sizeof(np->last_relay), "%s", data);
 
-      char *end = strrchr(np->last_relay, '}');
+      char relay[2048];
+      snprintf(relay, sizeof(relay), "%s", data);
+
+      char *end = strrchr(relay, '}');
       if (end) {
         *end = 0;
       }
 
+      SDL_LockMutex(np->lock);
+      memcpy(np->last_relay, relay, sizeof(np->last_relay));
       np->relay_seq++;
+      SDL_UnlockMutex(np->lock);
     }
   } else if (strcmp(type, "room_closed") == 0) {
     np->joined = false;
@@ -226,31 +244,37 @@ static int netplay_callback(struct lws *wsi, enum lws_callback_reasons reason,
     lws_callback_on_writable(wsi);
     break;
 
-  case LWS_CALLBACK_CLIENT_WRITEABLE:
-    while (np->tx_head != np->tx_tail) {
-      const char *text = np->tx[np->tx_head];
-      const size_t text_len = strlen(text);
+  case LWS_CALLBACK_CLIENT_WRITEABLE: {
+    char text[TX_MAX];
 
-      unsigned char *buf = malloc(LWS_PRE + text_len);
-      if (!buf) {
-        break;
-      }
-
-      memcpy(buf + LWS_PRE, text, text_len);
-      const int written = lws_write(wsi, buf + LWS_PRE, text_len, LWS_WRITE_TEXT);
-      free(buf);
-
-      if (written < 0) {
-        break;
-      }
-
+    SDL_LockMutex(np->lock);
+    const bool have = np->tx_head != np->tx_tail;
+    if (have) {
+      memcpy(text, np->tx[np->tx_head], TX_MAX);
       np->tx_head = (np->tx_head + 1) % TX_QUEUE;
     }
+    const bool more = np->tx_head != np->tx_tail;
+    SDL_UnlockMutex(np->lock);
 
-    if (np->tx_head != np->tx_tail) {
+    if (!have) {
+      break;
+    }
+
+    const size_t text_len = strlen(text);
+    unsigned char *buf = malloc(LWS_PRE + text_len);
+    if (!buf) {
+      break;
+    }
+
+    memcpy(buf + LWS_PRE, text, text_len);
+    const int written = lws_write(wsi, buf + LWS_PRE, text_len, LWS_WRITE_TEXT);
+    free(buf);
+
+    if (more && written >= 0) {
       lws_callback_on_writable(wsi);
     }
     break;
+  }
 
   case LWS_CALLBACK_CLIENT_RECEIVE:
     if (lws_frame_is_binary(wsi)) {
@@ -299,7 +323,7 @@ static int netplay_thread(void *data) {
   struct netplay *np = data;
 
   while (!np->stop) {
-    lws_service(np->context, 0);
+    lws_service(np->context, 5);
   }
 
   return 0;
@@ -309,6 +333,12 @@ struct netplay *netplay_create(const struct netplay_config *cfg) {
   struct netplay *np = calloc(1, sizeof(*np));
   if (!np) {
     return NULL;
+  }
+
+  np->lock = SDL_CreateMutex();
+  if (!np->lock) {
+    set_error(np, "could not create network mutex");
+    return np;
   }
 
   if (!parse_server_url(np, cfg->server_url ? cfg->server_url : "ws://127.0.0.1:8080")) {
@@ -410,6 +440,10 @@ void netplay_destroy(struct netplay *np) {
     lws_context_destroy(np->context);
   }
 
+  if (np->lock) {
+    SDL_DestroyMutex(np->lock);
+  }
+
   free(np);
 }
 
@@ -439,12 +473,22 @@ const char *netplay_error(const struct netplay *np) {
   return np && np->error[0] ? np->error : NULL;
 }
 
-uint32_t netplay_relay_seq(const struct netplay *np) {
-  return np ? np->relay_seq : 0;
-}
+bool netplay_get_relay(struct netplay *np, uint32_t *seq, char *out, size_t outsz) {
+  if (!np || !np->lock) {
+    return false;
+  }
 
-const char *netplay_last_relay(const struct netplay *np) {
-  return np && np->last_relay[0] ? np->last_relay : NULL;
+  bool got = false;
+
+  SDL_LockMutex(np->lock);
+  if (np->relay_seq != *seq && np->last_relay[0]) {
+    snprintf(out, outsz, "%s", np->last_relay);
+    *seq = np->relay_seq;
+    got = true;
+  }
+  SDL_UnlockMutex(np->lock);
+
+  return got;
 }
 
 void netplay_send_relay(struct netplay *np, const char *json_data) {

@@ -14,7 +14,7 @@
 - [x] Build reproducible con Meson + SDL3 (o SDL2).
 - [x] Configuración de mandito y teclado.
 - [x] Pantalla completa con imagen estirada.
-- [x] Menú de pausa dentro del juego con opción de volver al título.
+- [x] Menú de pausa dentro del juego con opción de volver al menú principal.
 - [ ] Primer arranque sin ROM: mensaje claro para seleccionar `smb.nes`.
 - [x] Medir rendimiento y estabilidad.
 
@@ -29,8 +29,9 @@
 
 ## Fase 3 — Fantasma remoto
 
-- [x] Enviar posición/animación del jugador a ~10 Hz.
+- [x] Enviar posición/animación del jugador a ~30 Hz.
 - [x] Dibujar el fantasma del otro jugador con interpolación.
+- [x] Sprites relativos a la posición en pantalla (funciona con scroll).
 - [ ] Indicador cuando el fantasma está fuera de pantalla.
 - [ ] Emotes básicos.
 

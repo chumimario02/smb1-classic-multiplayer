@@ -580,7 +580,7 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
     return;
   }
 
-  if (now_ms - fe->last_ghost_send_ms < 100) {
+  if (now_ms - fe->last_ghost_send_ms < 33) {
     return;
   }
   fe->last_ghost_send_ms = now_ms;
@@ -596,6 +596,10 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
   }
 
   const int abs_x = page * 256 + px;
+  const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
+  // SMB1 sprite coordinates are screen coordinates, so sprite offsets must be
+  // relative to the player's *screen* position, not to its world position.
+  const int screen_x = (abs_x - cam_abs) & 0xFF;
   const int base = 0x0200 + spr_off;
 
   char data[768];
@@ -614,7 +618,7 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
       continue;
     }
 
-    int dx = ox - px;
+    int dx = ox - screen_x;
     int dy = oy - py;
     if (dx > 128) dx -= 256;
     if (dx < -128) dx += 256;
@@ -688,13 +692,12 @@ static void update_ghost(struct frontend_userdata *fe) {
     return;
   }
 
-  const uint32_t seq = netplay_relay_seq(fe->netplay);
-  if (seq == fe->last_ghost_seq) {
+  char relay[2048];
+  if (!netplay_get_relay(fe->netplay, &fe->last_ghost_seq, relay, sizeof(relay))) {
     return;
   }
 
-  fe->last_ghost_seq = seq;
-  parse_ghost_data(fe, netplay_last_relay(fe->netplay));
+  parse_ghost_data(fe, relay);
 }
 
 static void draw_ghost(struct frontend_userdata *fe) {
@@ -707,10 +710,17 @@ static void draw_ghost(struct frontend_userdata *fe) {
 
   const int dx = fe->ghost_x - fe->ghost_draw_x;
   const int dy = fe->ghost_y - fe->ghost_draw_y;
-  fe->ghost_draw_x += dx / 3;
-  fe->ghost_draw_y += dy / 3;
-  if (abs(dx) <= 2) fe->ghost_draw_x = fe->ghost_x;
-  if (abs(dy) <= 2) fe->ghost_draw_y = fe->ghost_y;
+
+  if (abs(dx) > 48 || abs(dy) > 48) {
+    // Big jump (level change, teleport): snap instead of gliding for ages.
+    fe->ghost_draw_x = fe->ghost_x;
+    fe->ghost_draw_y = fe->ghost_y;
+  } else {
+    fe->ghost_draw_x += (dx * 2) / 3;
+    fe->ghost_draw_y += (dy * 2) / 3;
+    if (abs(fe->ghost_x - fe->ghost_draw_x) <= 1) fe->ghost_draw_x = fe->ghost_x;
+    if (abs(fe->ghost_y - fe->ghost_draw_y) <= 1) fe->ghost_draw_y = fe->ghost_y;
+  }
 
   const int gx = fe->ghost_draw_x - cam_abs;
   const int gy = fe->ghost_draw_y;
