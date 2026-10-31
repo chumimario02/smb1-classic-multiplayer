@@ -434,7 +434,7 @@ static void apply_skin(struct frontend_userdata *fe) {
     {0x16, 0x27, 0x18}, // MARIO: red shirt, skin, brown overalls
     {0x1A, 0x27, 0x18}, // LUIGI: green
     {0x21, 0x30, 0x11}, // HIELO: ice blue
-    {0x37, 0x27, 0x16}, // FUEGO: white/red
+    {0x26, 0x30, 0x16}, // FUEGO: light red, white face, red overalls
   };
 
   const int skin = fe->skin & 3;
@@ -456,12 +456,17 @@ static void draw_menu(struct frontend_userdata *fe) {
   draw_font_text(fe, 80, 56, "SMB1 CLASSIC", 2);
 
   if (fe->menu == MENU_MAIN) {
-    draw_font_text(fe, 80, 112, "SINGLEPLAYER", 2);
-    draw_font_text(fe, 84, 136, "MULTIPLAYER", 2);
+    draw_font_text(fe, 80, 100, "SINGLEPLAYER", 2);
+    draw_font_text(fe, 84, 124, "MULTIPLAYER", 2);
 
-    const int y = fe->menu_selection == 0 ? 112 : 136;
-    draw_font_text(fe, fe->menu_selection == 0 ? 64 : 68, y, "-", 2);
-    draw_font_text(fe, 72, 184, "ENTER = ELEGIR", 2);
+    char skin_line[24];
+    snprintf(skin_line, sizeof(skin_line), "SKIN: %s", skin_names[fe->skin & 3]);
+    draw_font_text(fe, 72, 148, skin_line, 2);
+
+    const int y = 100 + fe->menu_selection * 24;
+    const int x = fe->menu_selection == 0 ? 64 : (fe->menu_selection == 1 ? 68 : 56);
+    draw_font_text(fe, x, y, "-", 2);
+    draw_font_text(fe, 64, 184, "ENTER = ELEGIR", 2);
   } else if (fe->menu == MENU_MULTIPLAYER) {
     draw_font_text(fe, 84, 88, "MULTIPLAYER", 2);
     draw_font_text(fe, 88, 112, "HOST GAME", 2);
@@ -599,15 +604,23 @@ static void return_to_main_menu(struct frontend_userdata *fe) {
 static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
   if (fe->menu == MENU_MAIN) {
     if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
-      fe->menu_selection = 0;
+      if (fe->menu_selection > 0) fe->menu_selection--;
     } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
-      fe->menu_selection = 1;
+      if (fe->menu_selection < 2) fe->menu_selection++;
+    } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A ||
+               sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_D) {
+      if (fe->menu_selection == 2) {
+        const int dir = (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A) ? 3 : 1;
+        fe->skin = (fe->skin + dir) % 4;
+      }
     } else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) {
       if (fe->menu_selection == 0) {
         start_singleplayer(fe);
-      } else {
+      } else if (fe->menu_selection == 1) {
         fe->menu = MENU_MULTIPLAYER;
         fe->menu_selection = 0;
+      } else {
+        fe->skin = (fe->skin + 1) % 4;
       }
     }
   } else if (fe->menu == MENU_MULTIPLAYER) {
