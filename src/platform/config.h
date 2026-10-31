@@ -47,6 +47,12 @@ struct config {
   int world;
   int level;
 
+  bool online;
+  bool online_host;
+  const char *online_room;
+  const char *online_server;
+  const char *online_name;
+
 #include "config.inc"
 };
 
@@ -80,6 +86,8 @@ static bool parse_cli_args(int argc, char *argv[], struct config *cfg) {
 
   cfg->world = 1;
   cfg->level = 1;
+  cfg->online_server = "ws://127.0.0.1:8080";
+  cfg->online_name = "PLAYER";
 
   // The rom is the first argument by default
   if (PEEK_IS_NONFLAG()) {
@@ -124,6 +132,33 @@ static bool parse_cli_args(int argc, char *argv[], struct config *cfg) {
       } else {
         return false;
       }
+    }
+    if (PEEK_EQ("--online-host")) {
+      POP();
+      cfg->online = true;
+      cfg->online_host = true;
+    }
+    if (PEEK_EQ("--online-join")) {
+      POP();
+      POP();
+      cfg->online = true;
+      cfg->online_host = false;
+      cfg->online_room = ptr;
+    }
+    if (PEEK_EQ("--room")) {
+      POP();
+      POP();
+      cfg->online_room = ptr;
+    }
+    if (PEEK_EQ("--server")) {
+      POP();
+      POP();
+      cfg->online_server = ptr;
+    }
+    if (PEEK_EQ("--name")) {
+      POP();
+      POP();
+      cfg->online_name = ptr;
     }
     if (PEEK_EQ("--maxspeed")) {
       POP();

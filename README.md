@@ -80,7 +80,7 @@ See [docs/DISENO.md](docs/DISENO.md) for the full design and [docs/ROADMAP.md](d
 Install the toolchain from the MSYS2 MinGW64 shell:
 
 ```sh
-pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-SDL2
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-meson mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf mingw-w64-x86_64-SDL2 mingw-w64-x86_64-libwebsockets
 ```
 
 Then build. The script uses the OpenGL renderer by default:
@@ -108,7 +108,7 @@ build/src/platform/smbvanilla.exe
 ## Build on Raspberry Pi Zero 2 W
 
 ```sh
-sudo apt install build-essential meson ninja-build libsdl2-dev
+sudo apt install build-essential meson ninja-build libsdl2-dev libwebsockets-dev
 meson setup build -Dsdl2=true -Dopengl=false
 meson compile -C build
 ./build/src/platform/smbvanilla
@@ -118,9 +118,33 @@ meson compile -C build
 - Target: 60 fps at the original 256x240 resolution, scaled to the display.
 - Gamepad support and a fullscreen launcher are on the roadmap.
 
-## Online server
+## Online (Phase 1)
 
-The planned room/relay server lives in its own repository: [smb1-classic-multiplayer-server](https://github.com/chumimario02/smb1-classic-multiplayer-server). It provides room codes plus a WebSocket relay. The client will send ghost state at a low rate (around 10 Hz) and discrete events for power-ups, eco blocks and revives. It is not wired into the game yet.
+The room/relay server lives in its own repository:
+[smb1-classic-multiplayer-server](https://github.com/chumimario02/smb1-classic-multiplayer-server).
+It provides 4-letter room codes and a WebSocket relay.
+
+Implemented in the client:
+
+- Connect to the server.
+- Create a room or join one by code.
+- Relay messages between the two players.
+- In-game status overlay (`SALA XXXX`, `AMIGO CONECTADO`).
+
+Not implemented yet: ghost rendering, shared power-ups, eco blocks, lobby UI.
+
+Run two instances (Windows example):
+
+```sh
+# host
+smbvanilla.exe smb.nes --online-host --room TEST --server ws://127.0.0.1:8080 --name HOST
+
+# client
+smbvanilla.exe smb.nes --online-join TEST --server ws://127.0.0.1:8080 --name CLIENT
+```
+
+For a remote server use `wss://your-server.example`. The status overlay appears
+at the top-left while online is active.
 
 ## Credits and license
 

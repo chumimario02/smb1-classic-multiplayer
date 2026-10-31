@@ -12,6 +12,8 @@ else
   endif
 endif
 
+libwebsockets = dependency('libwebsockets')
+
 use_opengl = get_option('opengl')
 
 opengl_sources = use_opengl ? ['render_opengl.c', 'thirdparty/glad/src/gl.c'] : ['render_opengl_noop.c']
@@ -28,6 +30,7 @@ executable('smbvanilla',
             'audio_sdl.cpp',
             'timer_sdl.c',
             'movie.c',
+            'netplay.c',
             'render_raster.c',
             'thirdparty/ini.c'] + opengl_sources,
 
@@ -35,7 +38,7 @@ executable('smbvanilla',
            win_subsystem: 'windows',
            include_directories: ['../../Nes_Snd_Emu', '..'] + opengl_include_dirs,
            link_with: [smbcore, nessndemu],
-           dependencies: [sdl],
+           dependencies: [sdl, libwebsockets],
            c_args:   use_sdl_args + opengl_args,
            cpp_args: use_sdl_args + opengl_args)
 

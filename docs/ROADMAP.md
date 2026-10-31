@@ -20,10 +20,11 @@
 
 ## Fase 2 — Online básico
 
-- [ ] Servidor de salas con código de 4 letras.
-- [ ] Cliente WebSocket en C.
-- [ ] Conexión de dos clientes y relay de mensajes.
-- [ ] Pantalla de lobby: crear/unirse por código.
+- [x] Servidor de salas con código de 4 letras.
+- [x] Cliente WebSocket en C.
+- [x] Conexión de dos clientes y relay de mensajes.
+- [x] Estado de conexión en pantalla.
+- [ ] Pantalla de lobby: crear/unirse por código (por ahora por línea de comandos).
 
 ## Fase 3 — Fantasma remoto
 

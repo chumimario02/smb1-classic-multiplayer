@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "smbcore/mario.h"
 #include "movie.h"
+#include "netplay.h"
 #include "render_common.h"
 #include "render_opengl.h"
 #include "render_raster.h"
@@ -76,6 +77,7 @@ struct frontend_userdata {
   struct SMB_state *smb_state;
   struct SMB_audio *audio;
   struct Movie *movie;
+  struct netplay *netplay;
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
@@ -329,6 +331,33 @@ static void draw_pause_menu(struct frontend_userdata *fe) {
   draw_font_text(fe, x, y, "-", 2);
 }
 
+static void draw_online_status(struct frontend_userdata *fe) {
+  if (!fe->netplay) {
+    return;
+  }
+
+  char line[64];
+
+  if (netplay_error(fe->netplay)) {
+    snprintf(line, sizeof(line), "ERROR RED");
+  } else if (!netplay_connected(fe->netplay)) {
+    snprintf(line, sizeof(line), "CONECTANDO...");
+  } else if (!netplay_joined(fe->netplay)) {
+    snprintf(line, sizeof(line), "CONECTADO");
+  } else {
+    const char *room = netplay_room(fe->netplay);
+    snprintf(line, sizeof(line), "SALA %s", room ? room : "----");
+  }
+
+  draw_font_text(fe, 8, 48, line, 2);
+
+  if (netplay_joined(fe->netplay)) {
+    draw_font_text(fe, 8, 60,
+                   netplay_has_peer(fe->netplay) ? "AMIGO CONECTADO" : "ESPERANDO...",
+                   2);
+  }
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
@@ -516,6 +545,10 @@ int sdl_tick(void *userdata) {
   poll_gamepad(fe);
 #endif
 
+  if (fe->netplay) {
+    netplay_update(fe->netplay, SDL_GetTicks());
+  }
+
   if (fe->smb_gl) {
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
@@ -523,6 +556,7 @@ int sdl_tick(void *userdata) {
     if (fe->pause_menu_active) {
       draw_pause_menu(fe);
     }
+    draw_online_status(fe);
 
     int draw_w = 0;
     int draw_h = 0;
@@ -556,6 +590,7 @@ int sdl_tick(void *userdata) {
     if (fe->pause_menu_active) {
       draw_pause_menu(fe);
     }
+    draw_online_status(fe);
 
     SDL_UnlockSurface(surf);
 
@@ -849,6 +884,21 @@ int main(int argc, char *argv[]) {
   SMB_start_on_level(smb_state, cfg.world, cfg.level);
   fe->smb_state = smb_state;
 
+  if (cfg.online) {
+    struct netplay_config npcfg;
+    memset(&npcfg, 0, sizeof(npcfg));
+    npcfg.server_url = cfg.online_server;
+    npcfg.room = cfg.online_room;
+    npcfg.name = cfg.online_name;
+    npcfg.host = cfg.online_host;
+
+    fe->netplay = netplay_create(&npcfg);
+    log_info("Online: server=%s room=%s host=%d",
+             cfg.online_server,
+             cfg.online_room ? cfg.online_room : "(auto)",
+             cfg.online_host);
+  }
+
   log_info("Started!");
 
 
@@ -945,6 +995,10 @@ exit:
     if (fe->movie) {
       movie_fini(fe->movie);
       free(fe->movie);
+    }
+    if (fe->netplay) {
+      netplay_destroy(fe->netplay);
+      fe->netplay = NULL;
     }
 #ifdef USE_SDL2
     if (fe->gamecontroller) {
