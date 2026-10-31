@@ -4192,6 +4192,7 @@ void PlayerHeadCollision(const u8 param_1, const u16 mt_x, const u16 mt_y) {
     // other player (mt_x is an absolute metatile column: world X / 16).
     SMB_STATE->eco_break_x = (int)mt_x * 16;
     SMB_STATE->eco_break_row = (int)mt_y;
+    SMB_STATE->eco_break_metatile = MT_0;
     SMB_STATE->eco_break_pending = true;
   }
   BlockOffsetToggle ^= 1;
@@ -4498,6 +4499,15 @@ void BlockObjMT_Updater(void) {
     set_metatile(mt_x, mt_y, metatile);
 
     ReplaceBlockMetatile(metatile, i, mt_x, mt_y);
+
+    // Online co-op: a used "?" block becomes empty in the partner's world too.
+    if (metatile == MT_BLOCK_EMPTY) {
+      const int cam_base = (ScreenLeft_PageLoc & ~1) * 16;
+      SMB_STATE->eco_break_x = (cam_base + (int)mt_x) * 16;
+      SMB_STATE->eco_break_row = (int)mt_y;
+      SMB_STATE->eco_break_metatile = MT_BLOCK_EMPTY;
+      SMB_STATE->eco_break_pending = true;
+    }
 
     Block_RepFlag[i] = 0;
   }
@@ -8302,6 +8312,12 @@ void PlayerHammerCollision(const u8 objoff) {
 // Signature: [X] -> []
 void HandlePowerUpCollision(const u8 objoff) {
   // note: the caller always set X to r08
+
+  // Online co-op: remember where the power-up was, so the partner's copy can be
+  // removed when either player collects it.
+  SMB_STATE->eco_item_x = (int)Enemy_PageLoc[objoff] * 256 + Enemy_X_Position[objoff];
+  SMB_STATE->eco_item_y = Enemy_Y_Position[objoff];
+  SMB_STATE->eco_item_pending = true;
 
   EraseEnemyObject(objoff);
 

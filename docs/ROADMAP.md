@@ -47,8 +47,9 @@
 - [x] Evento al romper un ladrillo.
 - [x] El ladrillo desaparece también en el mundo del otro jugador (si tiene esa
       pantalla cargada).
+- [x] Sincronizar bloques `?`: se gastan en los dos mundos.
+- [x] El power-up sale en los dos mundos y desaparece en ambos al recogerlo.
 - [ ] Renderizado distintivo para los bloques eco.
-- [ ] Sincronizar también bloques `?` y monedas.
 
 ## Fase 6 — Reglas de co-op
 

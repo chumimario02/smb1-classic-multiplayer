@@ -14,6 +14,8 @@
 #define RX_MAX 65536
 #define TX_MAX 2048
 #define TX_QUEUE 32
+#define RELAY_QUEUE 32
+#define RELAY_MAX 512
 
 struct netplay {
   struct lws_context *context;
@@ -33,8 +35,9 @@ struct netplay {
 
   char room[8];
   char error[160];
-  char last_relay[2048];
-  uint32_t relay_seq;
+  char relay_q[RELAY_QUEUE][RELAY_MAX];
+  int relay_head;
+  int relay_tail;
 
   char rx[RX_MAX];
   size_t rx_len;
@@ -204,7 +207,7 @@ static void netplay_process_message(struct netplay *np) {
     if (data) {
       data += 7;
 
-      char relay[2048];
+      char relay[RELAY_MAX];
       snprintf(relay, sizeof(relay), "%s", data);
 
       char *end = strrchr(relay, '}');
@@ -213,8 +216,11 @@ static void netplay_process_message(struct netplay *np) {
       }
 
       SDL_LockMutex(np->lock);
-      memcpy(np->last_relay, relay, sizeof(np->last_relay));
-      np->relay_seq++;
+      const int next = (np->relay_tail + 1) % RELAY_QUEUE;
+      if (next != np->relay_head) {
+        snprintf(np->relay_q[np->relay_tail], RELAY_MAX, "%s", relay);
+        np->relay_tail = next;
+      }
       SDL_UnlockMutex(np->lock);
     }
   } else if (strcmp(type, "room_closed") == 0) {
@@ -474,6 +480,8 @@ const char *netplay_error(const struct netplay *np) {
 }
 
 bool netplay_get_relay(struct netplay *np, uint32_t *seq, char *out, size_t outsz) {
+  (void)seq;
+
   if (!np || !np->lock) {
     return false;
   }
@@ -481,9 +489,9 @@ bool netplay_get_relay(struct netplay *np, uint32_t *seq, char *out, size_t outs
   bool got = false;
 
   SDL_LockMutex(np->lock);
-  if (np->relay_seq != *seq && np->last_relay[0]) {
-    snprintf(out, outsz, "%s", np->last_relay);
-    *seq = np->relay_seq;
+  if (np->relay_head != np->relay_tail) {
+    snprintf(out, outsz, "%s", np->relay_q[np->relay_head]);
+    np->relay_head = (np->relay_head + 1) % RELAY_QUEUE;
     got = true;
   }
   SDL_UnlockMutex(np->lock);

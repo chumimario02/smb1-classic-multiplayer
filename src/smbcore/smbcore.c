@@ -6,6 +6,7 @@
 #include "vars.h"
 #include "consts.h"
 #include "types.h"
+#include "tiles.h"
 
 #include <string.h>
 
@@ -216,7 +217,12 @@ void SMB_ram_finishwrite(struct SMB_state *state) {
 }
 
 void smb1_GetPlayerColors(void);
-void smb1_DestroyBlockMetatile(const u16 mt_x, const u16 mt_y);
+void smb1_WriteBlockMetatile(const u8 metatile, const u16 mt_x, const u16 mt_y);
+void smb1_MushFlowerBlock(const u8 param_1);
+void smb1_CoinBlock(const u8 param_1);
+void smb1_ExtraLifeMushBlock(const u8 param_1);
+void smb1_StarBlock(const u8 param_1);
+void smb1_EraseEnemyObject(const u8 param_1);
 
 void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
   state->hold_at_flag = hold;
@@ -226,8 +232,7 @@ void SMB_set_respawn_page(struct SMB_state *state, int page) {
   state->respawn_page = page;
 }
 
-bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row) {
-  if (!state->eco_break_pending) {
+bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row, int *metatile) {  if (!state->eco_break_pending) {
     return false;
   }
 
@@ -235,11 +240,12 @@ bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row) {
 
   if (world_x) *world_x = state->eco_break_x;
   if (row) *row = state->eco_break_row;
+  if (metatile) *metatile = state->eco_break_metatile;
 
   return true;
 }
 
-bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row) {
+bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row, int metatile) {
   if (state->which_game != GAME_SMB1) {
     return false;
   }
@@ -254,17 +260,86 @@ bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row) {
   const u16 mt_y = (u16)row;
 
   // The block buffer only holds the two screens around the camera. If the
-  // partner's brick is outside of it, leave it alone: it will be parsed from
+  // partner's block is outside of it, leave it alone: it will be parsed from
   // the level data when it scrolls in.
-  const int cam_col = (int)ScreenLeft_PageLoc * 16;
+  const int cam_col = (ScreenLeft_PageLoc & ~1) * 16;
   if ((int)mt_x < cam_col || (int)mt_x >= cam_col + 32) {
     return false;
   }
 
-  set_metatile(mt_x, mt_y, MT_0);
-  smb1_DestroyBlockMetatile(mt_x, mt_y);
+  // If this is a "?" block in our world, make the item pop out here too, so
+  // both players see the mushroom/flower/coin.
+  const u8 was = get_metatile(mt_x, mt_y);
+  if ((u8)metatile == MT_BLOCK_EMPTY && metatile_is_itemblock(was)) {
+    // Point the block object at the block we are opening.
+    Block_PageLoc[0] = (u8)(world_x >> 8);
+    Block_X_Position[0] = (u8)(world_x & 0xFF);
+    Block_Y_HighPos[0] = 1;
+    Block_Y_Position[0] = (u8)((row + MT_Y_TOP_MARGIN) * 16);
+    Block_X_Speed[0] = 0;
+    Block_Y_Speed[0] = 0;
+
+    switch (was) {
+    case MT_QUESTIONBLOCK_POWERUP:
+    case MT_BRICK_2_POWERUP:
+    case MT_BRICK_POWERUP:
+      smb1_MushFlowerBlock(0);
+      break;
+    case MT_QUESTIONBLOCK_COIN:
+    case MT_HIDDEN_1COIN:
+    case MT_BRICK_2_COINS:
+    case MT_BRICK_COINS:
+      smb1_CoinBlock(0);
+      break;
+    case MT_HIDDEN_1UP:
+    case MT_BRICK_2_1UP:
+    case MT_BRICK_1UP:
+      smb1_ExtraLifeMushBlock(0);
+      break;
+    case MT_BRICK_2_STAR:
+    case MT_BRICK_STAR:
+      smb1_StarBlock(0);
+      break;
+    default:
+      break;
+    }
+  }
+
+  set_metatile(mt_x, mt_y, (u8)metatile);
+  smb1_WriteBlockMetatile((u8)metatile, mt_x, mt_y);
 
   return true;
+}
+
+bool SMB_take_item_pickup(struct SMB_state *state, int *world_x, int *y) {
+  if (!state->eco_item_pending) {
+    return false;
+  }
+
+  state->eco_item_pending = false;
+
+  if (world_x) *world_x = state->eco_item_x;
+  if (y) *y = state->eco_item_y;
+
+  return true;
+}
+
+void SMB_remove_item_at(struct SMB_state *state, int world_x, int y) {
+  if (state->which_game != GAME_SMB1) {
+    return;
+  }
+
+  SMB_STATE = state;
+
+  (void)world_x;
+  (void)y;
+
+  // Each world only has one power-up on screen at a time and it always lives in
+  // sprite slot 5, so identity is enough: positions drift between the two
+  // worlds while the item pops out and falls.
+  if (Enemy_ID[5] == A_POWERUP) {
+    smb1_EraseEnemyObject(5);
+  }
 }
 
 void SMB_give_power(struct SMB_state *state, int power) {

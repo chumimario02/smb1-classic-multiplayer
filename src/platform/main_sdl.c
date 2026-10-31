@@ -1,4 +1,4 @@
-﻿#include "audio.h"
+#include "audio.h"
 #include "smbcore/mario.h"
 #include "movie.h"
 #include "netplay.h"
@@ -385,7 +385,15 @@ static void draw_online_status(struct frontend_userdata *fe) {
   char line[64];
 
   if (netplay_error(fe->netplay)) {
-    snprintf(line, sizeof(line), "ERROR RED");
+    // Show the actual reason, uppercase (the font has no lowercase glyphs).
+    const char *err = netplay_error(fe->netplay);
+    char up[30];
+    int n = 0;
+    for (const char *p = err; *p && n < 29; p++) {
+      up[n++] = (char)toupper((unsigned char)*p);
+    }
+    up[n] = 0;
+    snprintf(line, sizeof(line), "%s", up);
   } else if (!netplay_connected(fe->netplay)) {
     snprintf(line, sizeof(line), "CONECTANDO...");
   } else if (!netplay_joined(fe->netplay)) {
@@ -728,7 +736,7 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
 }
 
 static void parse_ghost_data(struct frontend_userdata *fe, const char *json) {
-  if (!json || !strstr(json, "\"kind\":\"g\"")) {
+  if (!json || !strstr(json, "\"kind\":\"g\",")) {
     return;
   }
 
@@ -790,12 +798,12 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
     return;
   }
 
-  if (strstr(json, "\"kind\":\"g\"")) {
+  if (strstr(json, "\"kind\":\"g\",")) {
     parse_ghost_data(fe, json);
     return;
   }
 
-  if (strstr(json, "\"kind\":\"clr\"")) {
+  if (strstr(json, "\"kind\":\"clr\",")) {
     const char *l = strstr(json, "\"l\":");
     const int level = l ? atoi(l + 4) : -1;
     u8 *ram = SMB_ram(fe->smb_state);
@@ -807,12 +815,12 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
     return;
   }
 
-  if (strstr(json, "\"kind\":\"dead\"")) {
+  if (strstr(json, "\"kind\":\"dead\",")) {
     fe->coop_peer_dead = true;
     return;
   }
 
-  if (strstr(json, "\"kind\":\"pw\"")) {
+  if (strstr(json, "\"kind\":\"pw\",")) {
     const char *p = strstr(json, "\"p\":");
     if (p) {
       SMB_give_power(fe->smb_state, atoi(p + 4));
@@ -820,14 +828,25 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
     return;
   }
 
-  if (strstr(json, "\"kind\":\"brk\"")) {
+  if (strstr(json, "\"kind\":\"brk\",")) {
     const char *x = strstr(json, "\"x\":");
     const char *r = strstr(json, "\"r\":");
+    const char *m = strstr(json, "\"m\":");
     if (x && r) {
-      SMB_eco_break_at(fe->smb_state, atoi(x + 4), atoi(r + 4));
+      SMB_eco_break_at(fe->smb_state, atoi(x + 4), atoi(r + 4), m ? atoi(m + 4) : 0);
     }
     return;
   }
+
+  if (strstr(json, "\"kind\":\"got\",")) {
+    const char *x = strstr(json, "\"x\":");
+    const char *y = strstr(json, "\"y\":");
+    if (x && y) {
+      SMB_remove_item_at(fe->smb_state, atoi(x + 4), atoi(y + 4));
+    }
+    return;
+  }
+
 }
 
 static void update_ghost(struct frontend_userdata *fe) {
@@ -836,12 +855,12 @@ static void update_ghost(struct frontend_userdata *fe) {
     return;
   }
 
-  char relay[2048];
-  if (!netplay_get_relay(fe->netplay, &fe->last_ghost_seq, relay, sizeof(relay))) {
-    return;
+  char relay[512];
+  // Drain every queued message: ghosts arrive at 30 Hz and would otherwise
+  // overwrite events like "brick broken" or "item collected".
+  while (netplay_get_relay(fe->netplay, &fe->last_ghost_seq, relay, sizeof(relay))) {
+    handle_relay(fe, relay);
   }
-
-  handle_relay(fe, relay);
 }
 
 // True when the local player has reached the flagpole and is finishing the level.
@@ -884,10 +903,17 @@ static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
 
   // Shared power-ups: announce upgrades so the partner gets them too.
   if (online) {
-    int bx = 0, br = 0;
-    if (SMB_take_eco_break(fe->smb_state, &bx, &br)) {
+    int bx = 0, br = 0, bm = 0;
+    if (SMB_take_eco_break(fe->smb_state, &bx, &br, &bm)) {
       char msg[64];
-      snprintf(msg, sizeof(msg), "{\"kind\":\"brk\",\"x\":%d,\"r\":%d}", bx, br);
+      snprintf(msg, sizeof(msg), "{\"kind\":\"brk\",\"x\":%d,\"r\":%d,\"m\":%d}", bx, br, bm);
+      send_coop_event(fe, msg);
+    }
+
+    int ix = 0, iy = 0;
+    if (SMB_take_item_pickup(fe->smb_state, &ix, &iy)) {
+      char msg[64];
+      snprintf(msg, sizeof(msg), "{\"kind\":\"got\",\"x\":%d,\"y\":%d}", ix, iy);
       send_coop_event(fe, msg);
     }
 

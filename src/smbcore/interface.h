@@ -20,7 +20,12 @@ struct SMB_state {
   // Last brick broken by the player, for online "eco blocks".
   int eco_break_x;
   int eco_break_row;
+  int eco_break_metatile;
   bool eco_break_pending;
+  // Last power-up collected, so the partner can remove their copy.
+  int eco_item_x;
+  int eco_item_y;
+  bool eco_item_pending;
   u8 start_on_world;
   u8 start_on_level;
 

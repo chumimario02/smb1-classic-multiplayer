@@ -152,8 +152,10 @@ but does not collide with your world.
 - **Death respawn:** after dying you respawn on your partner's screen (not at the
   level checkpoint), with the area around them already loaded.
 - **Eco bricks:** when you break a brick it also disappears in your partner's
-  world, as long as they have that screen loaded. Both of you keep your own
-  items, enemies and coins.
+  world, as long as they have that screen loaded.
+- **Eco `?` blocks:** hitting one uses it up for both players, and the
+  mushroom/flower/coin pops out in both worlds. When either player picks it up,
+  it disappears for both (and the power is shared).
 - **Different levels:** the ghost is hidden while the two of you are in
   different levels.
 
