@@ -145,18 +145,24 @@ meson compile -C build
 
 ## Online
 
-The room/relay server lives in its own repository:
+A **public room server is already running**, so players do not need to install
+anything: `wss://smb1-classic-rooms.onrender.com`.
+
+> It runs on Render's free plan, so it sleeps after ~15 minutes without traffic.
+> The first connection after that can take up to a minute: the client retries
+> automatically, just wait on `CONECTANDO...`.
+
+The server source lives in its own repository:
 [smb1-classic-multiplayer-server](https://github.com/chumimario02/smb1-classic-multiplayer-server).
-It provides 4-letter room codes and a WebSocket relay. Run it with `npm start`
-(defaults to port 8080).
+You can also run it yourself with `npm start` (port 8080) and point the game at
+it with `--server ws://127.0.0.1:8080`.
 
 How to play:
 
-1. Start the server.
-2. In the game: **Multiplayer → Host Game**. The room code appears at the top-left
+1. In the game: **Multiplayer → Host Game**. The room code appears at the top-left
    (`SALA XXXX`).
-3. On the other PC: **Multiplayer → Join Game**, type that code and press Enter.
-4. Both press **Enter** on the title screen to start the level.
+2. On the other PC: **Multiplayer → Join Game**, type that code and press Enter.
+3. Both press **Enter** on the title screen to start the level.
 
 Keep the host window open: if the host leaves, the room closes and the other
 player can no longer join.

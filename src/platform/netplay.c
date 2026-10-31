@@ -28,6 +28,13 @@ struct netplay {
   int port;
   bool use_ssl;
 
+  // Handshake data, kept so we can retry (Render free instances cold start).
+  char join_name[32];
+  char join_room[8];
+  bool want_host;
+  int attempts;
+  uint32_t next_attempt_ms;
+
   bool connected;
   bool joined;
   bool is_host;
@@ -247,6 +254,8 @@ static int netplay_callback(struct lws *wsi, enum lws_callback_reasons reason,
   case LWS_CALLBACK_CLIENT_ESTABLISHED:
     np->connected = true;
     np->wsi = wsi;
+    np->attempts = 0;
+    np->error[0] = 0;
     lws_callback_on_writable(wsi);
     break;
 
@@ -325,11 +334,67 @@ static int netplay_callback(struct lws *wsi, enum lws_callback_reasons reason,
   return 0;
 }
 
+static void netplay_start(struct netplay *np) {
+  np->attempts++;
+  np->next_attempt_ms = SDL_GetTicks() + 3000;
+  np->error[0] = 0;
+
+  struct lws_client_connect_info ccinfo;
+  memset(&ccinfo, 0, sizeof(ccinfo));
+  ccinfo.context = np->context;
+  ccinfo.address = np->host;
+  ccinfo.port = np->port;
+  ccinfo.path = np->path;
+  ccinfo.host = np->host;
+  ccinfo.origin = "origin";
+  ccinfo.protocol = protocols[0].name;
+  ccinfo.local_protocol_name = protocols[0].name;
+  ccinfo.ssl_connection = np->use_ssl ? LCCSCF_USE_SSL : 0;
+  ccinfo.userdata = np;
+  ccinfo.pwsi = &np->wsi;
+
+  np->wsi = lws_client_connect_via_info(&ccinfo);
+  if (!np->wsi) {
+    set_error(np, "could not start WebSocket connection");
+    return;
+  }
+
+  char hello[128];
+  snprintf(hello, sizeof(hello), "{\"t\":\"hello\",\"name\":\"%s\"}", np->join_name);
+  netplay_send_text(np, hello);
+
+  if (np->want_host) {
+    char create[256];
+    if (np->join_room[0]) {
+      snprintf(create, sizeof(create),
+               "{\"t\":\"create\",\"name\":\"1-1\",\"public\":false,\"max\":2,\"code\":\"%s\"}",
+               np->join_room);
+    } else {
+      snprintf(create, sizeof(create),
+               "{\"t\":\"create\",\"name\":\"1-1\",\"public\":false,\"max\":2}");
+    }
+    netplay_send_text(np, create);
+  } else {
+    char join[256];
+    snprintf(join, sizeof(join),
+             "{\"t\":\"join\",\"room\":\"%s\",\"name\":\"%s\"}",
+             np->join_room, np->join_name);
+    netplay_send_text(np, join);
+  }
+}
+
 static int netplay_thread(void *data) {
   struct netplay *np = data;
 
   while (!np->stop) {
     lws_service(np->context, 5);
+
+    // Retry while the server is unreachable (Render free instances sleep and
+    // need ~50 seconds to wake up).
+    if (!np->connected && np->attempts < 40 &&
+        SDL_GetTicks() >= np->next_attempt_ms) {
+      netplay_start(np);
+    }
   }
 
   return 0;
@@ -366,59 +431,17 @@ struct netplay *netplay_create(const struct netplay_config *cfg) {
     return np;
   }
 
-  struct lws_client_connect_info ccinfo;
-  memset(&ccinfo, 0, sizeof(ccinfo));
-  ccinfo.context = np->context;
-  ccinfo.address = np->host;
-  ccinfo.port = np->port;
-  ccinfo.path = np->path;
-  ccinfo.host = np->host;
-  ccinfo.origin = "origin";
-  ccinfo.protocol = protocols[0].name;
-  ccinfo.local_protocol_name = protocols[0].name;
-  ccinfo.ssl_connection = np->use_ssl ? LCCSCF_USE_SSL : 0;
-  ccinfo.userdata = np;
-  ccinfo.pwsi = &np->wsi;
-
-  np->wsi = lws_client_connect_via_info(&ccinfo);
-  if (!np->wsi) {
-    set_error(np, "could not start WebSocket connection");
-    return np;
-  }
-
-  char name[32];
-  clean_json(name, sizeof(name), cfg->name ? cfg->name : "PLAYER");
-
-  char hello[128];
-  snprintf(hello, sizeof(hello), "{\"t\":\"hello\",\"name\":\"%s\"}", name);
-  netplay_send_text(np, hello);
-
+  clean_json(np->join_name, sizeof(np->join_name), cfg->name ? cfg->name : "PLAYER");
+  np->want_host = cfg->host;
   if (cfg->host) {
-    char room[8] = {0};
     if (cfg->room && strlen(cfg->room) == 4) {
-      clean_json(room, sizeof(room), cfg->room);
+      clean_json(np->join_room, sizeof(np->join_room), cfg->room);
     }
-
-    char create[256];
-    if (room[0]) {
-      snprintf(create, sizeof(create),
-               "{\"t\":\"create\",\"name\":\"1-1\",\"public\":false,\"max\":2,\"code\":\"%s\"}",
-               room);
-    } else {
-      snprintf(create, sizeof(create),
-               "{\"t\":\"create\",\"name\":\"1-1\",\"public\":false,\"max\":2}");
-    }
-    netplay_send_text(np, create);
   } else {
-    char room[8] = {0};
-    clean_json(room, sizeof(room), cfg->room ? cfg->room : "");
-
-    char join[256];
-    snprintf(join, sizeof(join),
-             "{\"t\":\"join\",\"room\":\"%s\",\"name\":\"%s\"}",
-             room, name);
-    netplay_send_text(np, join);
+    clean_json(np->join_room, sizeof(np->join_room), cfg->room ? cfg->room : "");
   }
+
+  netplay_start(np);
 
   np->thread = SDL_CreateThread(netplay_thread, "netplay", np);
   if (!np->thread) {

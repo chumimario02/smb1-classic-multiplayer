@@ -86,7 +86,8 @@ static bool parse_cli_args(int argc, char *argv[], struct config *cfg) {
 
   cfg->world = 1;
   cfg->level = 1;
-  cfg->online_server = "ws://127.0.0.1:8080";
+  // Public room server (Render, Frankfurt). Override with --server or the ini.
+  cfg->online_server = "wss://smb1-classic-rooms.onrender.com";
   cfg->online_name = "PLAYER";
 
   // The rom is the first argument by default
