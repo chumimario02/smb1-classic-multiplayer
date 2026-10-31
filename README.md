@@ -2,7 +2,8 @@
 
 A fan-made, source-available fork of [SMB Vanilla](https://github.com/nukep/SMB-Vanilla) focused on **ghost-style online co-op** for **Windows** and the **Raspberry Pi Zero 2 W**.
 
-> **Status:** early development. The upstream single-player game works; the online mode and the co-op rules are designed but not implemented yet.
+> **Status:** playable prototype. Single-player is complete, and online co-op works
+> on Windows (two players, ghost-style). The Raspberry Pi build is still pending.
 
 ## What is this?
 
@@ -10,9 +11,9 @@ SMB Vanilla is a C decompilation/port of the NES games *Super Mario Bros.* and *
 
 The other player appears as a **ghost**: you can see their position and animation, but they do not collide with your enemies, blocks or physics. Interaction happens through events:
 
-- **Shared power-ups:** if one player grabs a mushroom or fire flower, the other gets it too.
-- **Eco blocks:** blocks that exist only in one player's world. Breaking one sends a reward or opens a path for the other player.
-- **Emotes / revives:** small interactions to keep the run cooperative without syncing the whole world.
+- **Shared power-ups:** if one player grabs a mushroom, fire flower or star, the other gets it too.
+- **Eco blocks:** the level itself is shared. Bricks you break and `?` blocks you use disappear for both players, and power-ups pop out of the same block in both worlds.
+- **Shared progress:** you wait for each other at the flagpole, and when you die you respawn on your partner's screen instead of the checkpoint.
 
 This is intentionally **not** a shared-world co-op and **not** split-screen. Each player has their own camera on their own device. It is inspired by the ghost online mode of *Super Mario Bros. Wonder*.
 
@@ -20,26 +21,35 @@ This is intentionally **not** a shared-world co-op and **not** split-screen. Eac
 
 Implemented in the Windows build:
 
+**Single-player**
+
 - Infinite lives.
 - No time limit (timer frozen at 999) and no time bonus at the flagpole.
 - Keyboard and SDL2 gamepad support.
-- Fullscreen toggle with **F11**; the NES image is stretched to fill the window.
+- Fullscreen toggle with **F11** / **Alt+Q**; the NES image is stretched to fill the window.
 - Windows build launches as a GUI app, with no extra console window.
-- In-game pause menu with **Continue** and **Main Menu** options.
+- In-game pause menu with **Continue** and **Main Menu** (returns to the
+  Singleplayer/Multiplayer menu, not to the game title).
+- **Skins**: Mario, Luigi, Ice Mario and Fire Mario, chosen from the main menu or
+  the multiplayer menu with Left/Right.
+
+**Online co-op (2 players)**
+
 - Main menu with **Singleplayer** and **Multiplayer**.
-- Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
-- **Skins**: Mario, Luigi, Ice Mario and Fire Mario (palette swaps) chosen from the
-  main menu or the multiplayer menu with Left/Right. Your partner sees your skin
-  on your ghost. Power-ups share the player palette in SMB1, so mushrooms and
-  fire flowers are tinted to match your skin too (intended, it is part of the look).
-- Ghost rendering: the other player's Mario is sent at ~30 Hz and drawn in your level.
+- Multiplayer menu with **Host Game** / **Join Game**, 4-letter code entry and the
+  skin selector.
+- Ghost rendering: the other player's Mario is sent at ~30 Hz and drawn in your
+  level, with their skin.
+- Shared power-ups, eco bricks, eco `?` blocks, flag waits and respawns next to
+  your partner (see [Co-op rules](#co-op-rules)).
+- In-game overlay with the room code, connection state and the real network error
+  message if something fails.
 
 Still planned:
 
-- Ghost-style online co-op.
-- Shared power-ups.
-- Eco blocks.
-- Level-completion waits and the death/respawn rules.
+- Distinctive rendering for eco blocks (so you can tell which blocks are shared).
+- Reconnection, chat and emotes.
+- Raspberry Pi Zero 2 W build.
 
 ## Controls
 
@@ -53,6 +63,8 @@ Keyboard:
 - `F11` — toggle fullscreen
 - `Alt+Q` — toggle fullscreen
 - While paused: `Up`/`Down` select, `Space` chooses, `Enter` continues
+- In the menus: `W`/`S` or arrows move, `Enter`/`Space` choose, and on the
+  **SKIN** entry `Left`/`Right` change your skin
 
 Gamepad (SDL2, first controller):
 
@@ -62,15 +74,21 @@ Gamepad (SDL2, first controller):
 - `Start` — Start
 - `Back` — Select
 
-## Planned co-op rules
+## Co-op rules
 
-- **Online only.** No local co-op.
+- **Online only.** No local co-op and no split-screen: each player runs the game
+  on their own machine.
 - **Infinite lives.** Dying respawns you; there is no Game Over.
-- **No time limit.** The timer is frozen and the hurry-up/death-by-time logic is disabled.
-- **Level completion waits:** the first player to finish waits at the flagpole. When the second finishes, both advance.
-- **If the second player dies after the first finished,** the second also completes the level, so nobody gets stuck.
-- **Death:** respawn next to your friend on safe ground, with brief invulnerability, or at the last checkpoint if they are in another section.
-- **Both dead:** both return to the last checkpoint.
+- **No time limit.** The timer is frozen and the hurry-up/death-by-time logic is
+  disabled, with no time bonus at the flagpole.
+- **Flag wait:** the first player to finish stops at the flagpole and waits. The
+  level advances when the second player finishes (or after 60 seconds, or if they
+  disconnect or die).
+- **Death:** you respawn on your partner's screen, not at the checkpoint, with the
+  area around them already loaded.
+- **Skins are cosmetic:** they only change colors. The SMB1 engine shares the
+  player palette with power-ups, so mushrooms and fire flowers are tinted to match
+  your skin (this is intended).
 
 See [docs/DISENO.md](docs/DISENO.md) for the full design and [docs/ROADMAP.md](docs/ROADMAP.md) for the implementation order.
 
@@ -123,48 +141,25 @@ meson compile -C build
 
 - `-Dopengl=false` selects the software renderer, because the Zero 2 W only supports OpenGL ES 2.0 (the OpenGL renderer requires OpenGL 3.3).
 - Target: 60 fps at the original 256x240 resolution, scaled to the display.
-- Gamepad support and a fullscreen launcher are on the roadmap.
+- Not tested on the Pi yet; the launcher and `.deb` packaging are still to do.
 
-## Online (Phase 1)
+## Online
 
 The room/relay server lives in its own repository:
 [smb1-classic-multiplayer-server](https://github.com/chumimario02/smb1-classic-multiplayer-server).
-It provides 4-letter room codes and a WebSocket relay.
+It provides 4-letter room codes and a WebSocket relay. Run it with `npm start`
+(defaults to port 8080).
 
-Implemented in the client:
+How to play:
 
-- Connect to the server.
-- Create a room or join one by code.
-- Relay messages between the two players.
-- In-game status overlay (`SALA XXXX`, `AMIGO CONECTADO`).
+1. Start the server.
+2. In the game: **Multiplayer → Host Game**. The room code appears at the top-left
+   (`SALA XXXX`).
+3. On the other PC: **Multiplayer → Join Game**, type that code and press Enter.
+4. Both press **Enter** on the title screen to start the level.
 
-The ghost is visual only: it follows the other player's position and animation,
-but does not collide with your world.
-
-### Co-op rules
-
-- **Shared power-ups:** when one player grabs a mushroom, fire flower or star,
-  the other player gets the same upgrade in their own world.
-- **No shared damage:** only the player who is hit loses their power.
-- **Flag wait:** after touching the flagpole the level-end sequence stops and
-  you wait for your partner. It resumes when they finish (or after 60 seconds,
-  or if they disconnect or die).
-- **Death respawn:** after dying you respawn on your partner's screen (not at the
-  level checkpoint), with the area around them already loaded.
-- **Eco bricks:** when you break a brick it also disappears in your partner's
-  world, as long as they have that screen loaded.
-- **Eco `?` blocks:** hitting one uses it up for both players, and the
-  mushroom/flower/coin pops out in both worlds. When either player picks it up,
-  it disappears for both (and the power is shared).
-- **Different levels:** the ghost is hidden while the two of you are in
-  different levels.
-
-Eco blocks are the next phase.
-
-From the main menu choose **Multiplayer**:
-
-- **Host Game** creates a room and shows its 4-letter code.
-- **Join Game** lets you type the code and connect.
+Keep the host window open: if the host leaves, the room closes and the other
+player can no longer join.
 
 The command-line path is still available for testing:
 
@@ -178,6 +173,14 @@ smbvanilla.exe smb.nes --online-join TEST --server ws://127.0.0.1:8080 --name CL
 
 For a remote server use `wss://your-server.example`. The status overlay appears
 at the top-left while online is active.
+
+### Known limitations
+
+- Eco blocks only sync when the other player has that screen loaded (roughly two
+  screens around their camera). If they are far away, the block stays as it is in
+  their world until they get there.
+- Enemies, coins, score and lives are **not** shared: each player has their own.
+- The ghost is visual only. It never collides with your world.
 
 ## Troubleshooting on Windows
 
