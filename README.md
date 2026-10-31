@@ -25,7 +25,7 @@ Implemented in the Windows build:
 - Keyboard and SDL2 gamepad support.
 - Fullscreen toggle with **F11**; the NES image is stretched to fill the window.
 - Windows build launches as a GUI app, with no extra console window.
-- In-game pause menu with **Continue** and **Title Screen** options.
+- In-game pause menu with **Continue** and **Main Menu** options.
 - Main menu with **Singleplayer** and **Multiplayer**.
 - Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
 - Ghost rendering: the other player's Mario is sent at ~10 Hz and drawn in your level.

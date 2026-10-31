@@ -345,7 +345,7 @@ static void update_pause_menu(struct frontend_userdata *fe) {
 static void draw_pause_menu(struct frontend_userdata *fe) {
   draw_font_text(fe, 108, 72, "PAUSA", 2);
   draw_font_text(fe, 92, 104, "CONTINUAR", 2);
-  draw_font_text(fe, 56, 124, "PANTALLA DE TITULO", 2);
+  draw_font_text(fe, 72, 124, "MENU PRINCIPAL", 2);
 
   const int y = fe->pause_menu_selection == 0 ? 104 : 124;
   const int x = fe->pause_menu_selection == 0 ? 80 : 44;
@@ -508,6 +508,21 @@ static void start_online(struct frontend_userdata *fe, bool host, const char *ro
   fe->netplay = netplay_create(&npcfg);
   fe->menu = MENU_GAME;
   SMB_return_to_title(fe->smb_state);
+}
+
+static void return_to_main_menu(struct frontend_userdata *fe) {
+  if (fe->netplay) {
+    netplay_destroy(fe->netplay);
+    fe->netplay = NULL;
+  }
+
+  u8 *ram = SMB_ram(fe->smb_state);
+  ram[0x0776] = 0;
+  ram[0x0777] = 0;
+
+  fe->pause_menu_active = false;
+  fe->menu = MENU_MAIN;
+  fe->menu_selection = 0;
 }
 
 static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
@@ -736,6 +751,21 @@ static void draw_ghost(struct frontend_userdata *fe) {
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
   struct SMB_state *smb_state = fe->smb_state;
 
+  if (isdown) {
+    if (sc == SDL_SCANCODE_F11) {
+      set_fullscreen(fe, !fe->fullscreen);
+      return 0;
+    }
+#ifdef USE_SDL2
+    if (sc == SDL_SCANCODE_Q && (SDL_GetModState() & KMOD_ALT) != 0) {
+#else
+    if (sc == SDL_SCANCODE_Q && (SDL_GetModState() & SDL_KMOD_ALT) != 0) {
+#endif
+      set_fullscreen(fe, !fe->fullscreen);
+      return 0;
+    }
+  }
+
   if (fe->menu != MENU_GAME) {
     if (isdown) {
       handle_menu_key(fe, sc);
@@ -756,11 +786,12 @@ static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, boo
       }
       if (sc == SDL_SCANCODE_SPACE || sc == SDL_SCANCODE_X) {
         if (fe->pause_menu_selection == 1) {
-          SMB_return_to_title(smb_state);
+          return_to_main_menu(fe);
+        } else {
+          ram[0x0776] = 0;
+          ram[0x0777] = 0;
+          fe->pause_menu_active = false;
         }
-        ram[0x0776] = 0;
-        ram[0x0777] = 0;
-        fe->pause_menu_active = false;
         return 0;
       }
     }
@@ -889,10 +920,7 @@ int sdl_tick(void *userdata) {
           const int my = wh > 0 ? eventData.button.y * SMB_RENDER_HEIGHT / wh : eventData.button.y;
 
           if (mx >= 40 && mx <= 220 && my >= 116 && my <= 140) {
-            SMB_return_to_title(fe->smb_state);
-            ram[0x0776] = 0;
-            ram[0x0777] = 0;
-            fe->pause_menu_active = false;
+            return_to_main_menu(fe);
           } else if (mx >= 70 && mx <= 190 && my >= 94 && my <= 116) {
             ram[0x0776] = 0;
             ram[0x0777] = 0;
