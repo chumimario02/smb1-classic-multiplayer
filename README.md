@@ -25,6 +25,7 @@ Implemented in the Windows build:
 - Keyboard and SDL2 gamepad support.
 - Fullscreen toggle with **F11**; the NES image is stretched to fill the window.
 - Windows build launches as a GUI app, with no extra console window.
+- In-game pause menu with **Continue** and **Title Screen** options.
 
 Still planned:
 
@@ -44,6 +45,7 @@ Keyboard:
 - `\` — Select
 - `F11` — toggle fullscreen
 - `Alt+Q` — toggle fullscreen
+- While paused: `Up`/`Down` select, `Space` chooses, `Enter` continues
 
 Gamepad (SDL2, first controller):
 

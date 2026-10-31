@@ -189,6 +189,11 @@ void SMB_start_on_level(struct SMB_state *state, u8 world, u8 level) {
   state->start_on_level = level;
 }
 
+void SMB_return_to_title(struct SMB_state *state) {
+  state->return_to_title = true;
+  state->reset_occurred = false;
+}
+
 int SMB_which_game(const struct SMB_state *state) { return state->which_game; }
 
 u8 *SMB_ram(struct SMB_state *state) { return state->rammem; }
@@ -216,6 +221,10 @@ void SMB_tick(struct SMB_state *state) {
   if (state->which_game == GAME_SMB1) {
     if (!state->reset_occurred) {
       smb1_Reset();
+      if (state->return_to_title) {
+        state->return_to_title = false;
+        state->reset_occurred = true;
+      }
     }
 
     // The NES wrote to OAM registers to initiate copying sprites
@@ -233,6 +242,10 @@ void SMB_tick(struct SMB_state *state) {
   if (state->which_game == GAME_SMB2J) {
     if (!state->reset_occurred) {
       smb2j_Reset();
+      if (state->return_to_title) {
+        state->return_to_title = false;
+        state->reset_occurred = true;
+      }
     }
 
     // The NES wrote to OAM registers to initiate copying sprites

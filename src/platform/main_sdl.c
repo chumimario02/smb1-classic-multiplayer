@@ -88,6 +88,8 @@ struct frontend_userdata {
   SDL_Window *window;
   int video_scale;
   bool fullscreen;
+  bool pause_menu_active;
+  int pause_menu_selection;
   struct sdl_key_scancodes sdl_key_scancodes;
 
   u8 smb2j_games_beaten;
@@ -271,12 +273,89 @@ static void set_fullscreen(struct frontend_userdata *fe, bool fullscreen) {
 #endif
 }
 
+static void draw_font_tile(struct frontend_userdata *fe, int x, int y, int ch, int palette) {
+  int font_index;
+
+  if (ch >= 'A' && ch <= 'Z') {
+    font_index = 0x0A + (ch - 'A');
+  } else if (ch >= '0' && ch <= '9') {
+    font_index = ch - '0';
+  } else if (ch == '-') {
+    font_index = 0x28;
+  } else {
+    font_index = 0x24; // space
+  }
+
+  struct SMB_tile tile = {0};
+  tile.x = x;
+  tile.y = y;
+  tile.tileidx = 0x100 + font_index;
+  tile.paletteidx = palette;
+  tile.extra_type = TILE_TYPE_BG;
+
+  if (fe->smb_gl) {
+    SMBgl_draw_tile(fe->smb_gl, tile);
+  } else if (fe->smb_raster) {
+    SMBraster_draw_tile(fe->smb_raster, tile);
+  }
+}
+
+static void draw_font_text(struct frontend_userdata *fe, int x, int y, const char *text, int palette) {
+  for (const char *p = text; *p; p++) {
+    draw_font_tile(fe, x, y, *p, palette);
+    x += 8;
+  }
+}
+
+static void update_pause_menu(struct frontend_userdata *fe) {
+  u8 *ram = SMB_ram(fe->smb_state);
+  const bool paused = (ram[0x0776] & 1) != 0;
+
+  if (paused && !fe->pause_menu_active) {
+    fe->pause_menu_active = true;
+    fe->pause_menu_selection = 0;
+  } else if (!paused) {
+    fe->pause_menu_active = false;
+  }
+}
+
+static void draw_pause_menu(struct frontend_userdata *fe) {
+  draw_font_text(fe, 108, 72, "PAUSA", 2);
+  draw_font_text(fe, 92, 104, "CONTINUAR", 2);
+  draw_font_text(fe, 56, 124, "PANTALLA DE TITULO", 2);
+
+  const int y = fe->pause_menu_selection == 0 ? 104 : 124;
+  const int x = fe->pause_menu_selection == 0 ? 80 : 44;
+  draw_font_text(fe, x, y, "-", 2);
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
   struct SMB_state *smb_state = fe->smb_state;
 
   if (isdown) {
+    u8 *ram = SMB_ram(smb_state);
+    if ((ram[0x0776] & 1) != 0) {
+      if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
+        fe->pause_menu_selection = 0;
+        return 0;
+      }
+      if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
+        fe->pause_menu_selection = 1;
+        return 0;
+      }
+      if (sc == SDL_SCANCODE_SPACE || sc == SDL_SCANCODE_X) {
+        if (fe->pause_menu_selection == 1) {
+          SMB_return_to_title(smb_state);
+        }
+        ram[0x0776] = 0;
+        ram[0x0777] = 0;
+        fe->pause_menu_active = false;
+        return 0;
+      }
+    }
+
     switch (sc) {
     case SDL_SCANCODE_1:
       if (load_ppuram(smb_state, fe->cfg->debug.dump_ppu_filename)) {
@@ -377,6 +456,31 @@ int sdl_tick(void *userdata) {
       }
       break;
 
+    case SDL_MOUSEBUTTONDOWN:
+      if (eventData.button.button == SDL_BUTTON_LEFT) {
+        u8 *ram = SMB_ram(fe->smb_state);
+        if ((ram[0x0776] & 1) != 0) {
+          int ww = 0;
+          int wh = 0;
+          SDL_GetWindowSize(fe->window, &ww, &wh);
+
+          const int mx = ww > 0 ? eventData.button.x * SMB_RENDER_WIDTH / ww : eventData.button.x;
+          const int my = wh > 0 ? eventData.button.y * SMB_RENDER_HEIGHT / wh : eventData.button.y;
+
+          if (mx >= 40 && mx <= 220 && my >= 116 && my <= 140) {
+            SMB_return_to_title(fe->smb_state);
+            ram[0x0776] = 0;
+            ram[0x0777] = 0;
+            fe->pause_menu_active = false;
+          } else if (mx >= 70 && mx <= 190 && my >= 94 && my <= 116) {
+            ram[0x0776] = 0;
+            ram[0x0777] = 0;
+            fe->pause_menu_active = false;
+          }
+        }
+      }
+      break;
+
     case SDL_QUIT:
       return 1;
     }
@@ -415,6 +519,10 @@ int sdl_tick(void *userdata) {
   if (fe->smb_gl) {
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    update_pause_menu(fe);
+    if (fe->pause_menu_active) {
+      draw_pause_menu(fe);
+    }
 
     int draw_w = 0;
     int draw_h = 0;
@@ -444,6 +552,10 @@ int sdl_tick(void *userdata) {
     SMBraster_clear(fe->smb_raster);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    update_pause_menu(fe);
+    if (fe->pause_menu_active) {
+      draw_pause_menu(fe);
+    }
 
     SDL_UnlockSurface(surf);
 

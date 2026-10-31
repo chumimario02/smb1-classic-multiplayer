@@ -66,6 +66,8 @@ size_t SMB_state_size(void);
 bool SMB_state_init(struct SMB_state *state, const struct SMB_callbacks *cb);
 int SMB_which_game(const struct SMB_state *state);
 void SMB_start_on_level(struct SMB_state *state, u8 world, u8 level);
+// Reset the current game and return to the title screen.
+void SMB_return_to_title(struct SMB_state *state);
 void SMB_tick(struct SMB_state *state);
 u8 *SMB_ram(struct SMB_state *state);
 u8 *SMB_ppuram(struct SMB_state *state);

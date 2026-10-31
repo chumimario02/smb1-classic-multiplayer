@@ -14,6 +14,7 @@
 - [x] Build reproducible con Meson + SDL3 (o SDL2).
 - [x] Configuración de mandito y teclado.
 - [x] Pantalla completa con imagen estirada.
+- [x] Menú de pausa dentro del juego con opción de volver al título.
 - [ ] Primer arranque sin ROM: mensaje claro para seleccionar `smb.nes`.
 - [x] Medir rendimiento y estabilidad.
 

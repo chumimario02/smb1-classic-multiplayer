@@ -11,6 +11,7 @@ struct SMB_state {
   u8 ppuram[0x4000];
   int which_game;
   bool reset_occurred;
+  bool return_to_title;
   u8 start_on_world;
   u8 start_on_level;
 
