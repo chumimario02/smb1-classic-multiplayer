@@ -44,10 +44,11 @@
 
 ## Fase 5 — Bloques eco
 
-- [ ] Marcar bloques eco por nivel y por jugador.
-- [ ] Renderizado distintivo.
-- [ ] Evento al romperlos.
-- [ ] Recompensa o apertura de paso en el otro mundo.
+- [x] Evento al romper un ladrillo.
+- [x] El ladrillo desaparece también en el mundo del otro jugador (si tiene esa
+      pantalla cargada).
+- [ ] Renderizado distintivo para los bloques eco.
+- [ ] Sincronizar también bloques `?` y monedas.
 
 ## Fase 6 — Reglas de co-op
 

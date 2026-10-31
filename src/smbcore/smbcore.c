@@ -5,6 +5,7 @@
 #include "interface.h"
 #include "vars.h"
 #include "consts.h"
+#include "types.h"
 
 #include <string.h>
 
@@ -215,6 +216,7 @@ void SMB_ram_finishwrite(struct SMB_state *state) {
 }
 
 void smb1_GetPlayerColors(void);
+void smb1_DestroyBlockMetatile(const u16 mt_x, const u16 mt_y);
 
 void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
   state->hold_at_flag = hold;
@@ -222,6 +224,47 @@ void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
 
 void SMB_set_respawn_page(struct SMB_state *state, int page) {
   state->respawn_page = page;
+}
+
+bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row) {
+  if (!state->eco_break_pending) {
+    return false;
+  }
+
+  state->eco_break_pending = false;
+
+  if (world_x) *world_x = state->eco_break_x;
+  if (row) *row = state->eco_break_row;
+
+  return true;
+}
+
+bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row) {
+  if (state->which_game != GAME_SMB1) {
+    return false;
+  }
+
+  SMB_STATE = state;
+
+  if (row < 0 || row >= 13 || world_x < 0) {
+    return false;
+  }
+
+  const u16 mt_x = (u16)(world_x / 16);
+  const u16 mt_y = (u16)row;
+
+  // The block buffer only holds the two screens around the camera. If the
+  // partner's brick is outside of it, leave it alone: it will be parsed from
+  // the level data when it scrolls in.
+  const int cam_col = (int)ScreenLeft_PageLoc * 16;
+  if ((int)mt_x < cam_col || (int)mt_x >= cam_col + 32) {
+    return false;
+  }
+
+  set_metatile(mt_x, mt_y, MT_0);
+  smb1_DestroyBlockMetatile(mt_x, mt_y);
+
+  return true;
 }
 
 void SMB_give_power(struct SMB_state *state, int power) {

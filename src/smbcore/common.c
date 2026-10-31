@@ -4188,6 +4188,11 @@ void PlayerHeadCollision(const u8 param_1, const u16 mt_x, const u16 mt_y) {
     BumpBlock(mt_x, mt_y, param_1);
   } else {
     BrickShatter(mt_x, mt_y);
+    // Online co-op: tell the frontend so it can break the same brick for the
+    // other player (mt_x is an absolute metatile column: world X / 16).
+    SMB_STATE->eco_break_x = (int)mt_x * 16;
+    SMB_STATE->eco_break_row = (int)mt_y;
+    SMB_STATE->eco_break_pending = true;
   }
   BlockOffsetToggle ^= 1;
 }

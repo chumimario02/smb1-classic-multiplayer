@@ -85,6 +85,11 @@ void SMB_set_respawn_page(struct SMB_state *state, int page);
 // Give the player a power-up as if they had collected it: 1 = mushroom,
 // 2 = fire flower, 3 = star.
 void SMB_give_power(struct SMB_state *state, int power);
+// Eco blocks: returns true once after the player breaks a brick, giving its
+// world X and metatile row.
+bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row);
+// Removes the brick at the given world X / row if it is currently loaded.
+bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row);
 
 #ifdef __cplusplus
 }

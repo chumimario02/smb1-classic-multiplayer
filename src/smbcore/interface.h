@@ -17,6 +17,10 @@ struct SMB_state {
   bool hold_at_flag;
   // Page to respawn at after dying (set by the online co-op code). -1 = unused.
   int respawn_page;
+  // Last brick broken by the player, for online "eco blocks".
+  int eco_break_x;
+  int eco_break_row;
+  bool eco_break_pending;
   u8 start_on_world;
   u8 start_on_level;
 

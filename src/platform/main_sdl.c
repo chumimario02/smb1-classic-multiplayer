@@ -819,6 +819,15 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
     }
     return;
   }
+
+  if (strstr(json, "\"kind\":\"brk\"")) {
+    const char *x = strstr(json, "\"x\":");
+    const char *r = strstr(json, "\"r\":");
+    if (x && r) {
+      SMB_eco_break_at(fe->smb_state, atoi(x + 4), atoi(r + 4));
+    }
+    return;
+  }
 }
 
 static void update_ghost(struct frontend_userdata *fe) {
@@ -875,6 +884,13 @@ static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
 
   // Shared power-ups: announce upgrades so the partner gets them too.
   if (online) {
+    int bx = 0, br = 0;
+    if (SMB_take_eco_break(fe->smb_state, &bx, &br)) {
+      char msg[64];
+      snprintf(msg, sizeof(msg), "{\"kind\":\"brk\",\"x\":%d,\"r\":%d}", bx, br);
+      send_coop_event(fe, msg);
+    }
+
     const int status = ram[0x0756];
     if (status > fe->coop_last_status) {
       char msg[64];
