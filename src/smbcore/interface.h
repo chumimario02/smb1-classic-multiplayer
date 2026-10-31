@@ -15,6 +15,8 @@ struct SMB_state {
   // When true, the player stays at the flagpole after finishing a level instead
   // of advancing, so the online partner can catch up.
   bool hold_at_flag;
+  // Page to respawn at after dying (set by the online co-op code). -1 = unused.
+  int respawn_page;
   u8 start_on_world;
   u8 start_on_level;
 

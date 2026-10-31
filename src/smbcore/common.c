@@ -1970,6 +1970,12 @@ void PlayerLoseLife(void) {
 #ifdef SMB1_MODE
   TransposePlayers();
 #endif
+  if (SMB_STATE->respawn_page >= 0) {
+    // Online co-op: respawn on the screen where the partner is.
+    HalfwayPage = (u8)SMB_STATE->respawn_page;
+    EntrancePage = (u8)SMB_STATE->respawn_page;
+    SMB_STATE->respawn_page = -1;
+  }
   ContinueGame();
 }
 

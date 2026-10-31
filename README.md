@@ -145,8 +145,8 @@ but does not collide with your world.
 - **Flag wait:** after touching the flagpole the level-end sequence stops and
   you wait for your partner. It resumes when they finish (or after 60 seconds,
   or if they disconnect or die).
-- **Death respawn:** after dying you reappear next to your partner when they are
-  close enough; otherwise you respawn at the normal checkpoint.
+- **Death respawn:** after dying you respawn on your partner's screen (not at the
+  level checkpoint), with the area around them already loaded.
 - **Different levels:** the ghost is hidden while the two of you are in
   different levels.
 

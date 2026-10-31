@@ -181,6 +181,7 @@ bool SMB_state_init(struct SMB_state *state, const struct SMB_callbacks *cb) {
   state->callbacks = *cb;
   state->start_on_world = 1;
   state->start_on_level = 1;
+  state->respawn_page = -1;
 
   return detect_and_load_rom(state);
 }
@@ -217,6 +218,10 @@ void smb1_GetPlayerColors(void);
 
 void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
   state->hold_at_flag = hold;
+}
+
+void SMB_set_respawn_page(struct SMB_state *state, int page) {
+  state->respawn_page = page;
 }
 
 void SMB_give_power(struct SMB_state *state, int power) {

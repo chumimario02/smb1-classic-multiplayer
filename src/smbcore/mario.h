@@ -80,6 +80,8 @@ void SMB_ram_finishwrite(struct SMB_state *state);
 // Keep the player waiting at the flagpole (level already finished) instead of
 // advancing to the next level.
 void SMB_set_hold_at_flag(struct SMB_state *state, bool hold);
+// Choose the page (screen) the player respawns at after dying. Pass -1 to clear.
+void SMB_set_respawn_page(struct SMB_state *state, int page);
 // Give the player a power-up as if they had collected it: 1 = mushroom,
 // 2 = fire flower, 3 = star.
 void SMB_give_power(struct SMB_state *state, int power);

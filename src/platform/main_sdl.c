@@ -1,4 +1,4 @@
-#include "audio.h"
+﻿#include "audio.h"
 #include "smbcore/mario.h"
 #include "movie.h"
 #include "netplay.h"
@@ -112,10 +112,12 @@ struct frontend_userdata {
   bool coop_hold;
   uint32_t coop_wait_start_ms;
   bool coop_dead_sent;
-  bool coop_teleport_pending;
-  int coop_teleport_level;
-  int coop_teleport_x;
-  int coop_teleport_y;
+
+
+
+
+
+
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
@@ -207,6 +209,10 @@ static void apply_classic_rules(struct SMB_state *state) {
   ram[0x07F8] = 9;
   ram[0x07F9] = 9;
   ram[0x07FA] = 9;
+
+  // GameTimerCtrlTimer: never let the countdown reach the display, so the
+  // on-screen clock stays at 999 instead of ticking to 998.
+  ram[0x0787] = 0xFF;
 
   // GameTimerExpiredFlag: never show TIME UP.
   ram[0x0759] = 0;
@@ -535,7 +541,6 @@ static void start_online(struct frontend_userdata *fe, bool host, const char *ro
   fe->coop_peer_cleared = false;
   fe->coop_peer_dead = false;
   fe->coop_dead_sent = false;
-  fe->coop_teleport_pending = false;
   fe->coop_hold = false;
 }
 
@@ -791,38 +796,6 @@ static void send_coop_event(struct frontend_userdata *fe, const char *json) {
   netplay_send_relay(fe->netplay, json);
 }
 
-// Moves the local player next to the partner after dying, when the partner is
-// close enough that the level data around them is already loaded.
-static void apply_death_teleport(struct frontend_userdata *fe, u8 *ram) {
-  if (!fe->coop_teleport_pending || fe->coop_teleport_level != fe->coop_level) {
-    fe->coop_teleport_pending = false;
-    return;
-  }
-
-  const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
-  const int target = fe->coop_teleport_x;
-
-  if (target < 0 || abs(target - cam_abs) > 256) {
-    fe->coop_teleport_pending = false; // too far: keep the normal respawn
-    return;
-  }
-
-  fe->coop_teleport_pending = false;
-
-  ram[0x006D] = (u8)((target >> 8) & 0xFF);   // Player_PageLoc
-  ram[0x0086] = (u8)(target & 0xFF);          // Player_X_Position
-  ram[0x00CE] = (u8)fe->coop_teleport_y;      // Player_Y_Position
-  ram[0x001D] = 0;                            // Player_State: on ground
-  ram[0x0057] = 0;                            // Player_X_Speed
-  ram[0x009F] = 0;                            // Player_Y_Speed
-  ram[0x0723] = 0;                            // ScrollLock
-
-  int cam = target - 112;
-  if (cam < 0) cam = 0;
-  ram[0x071A] = (u8)((cam >> 8) & 0xFF);
-  ram[0x071C] = (u8)(cam & 0xFF);
-}
-
 static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
   u8 *ram = SMB_ram(fe->smb_state);
   const int level = ram[0x075F] * 10 + ram[0x075C];
@@ -838,8 +811,9 @@ static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
     fe->coop_clear_sent = false;
     fe->coop_dead_sent = false;
     fe->coop_hold = false;
+
     fe->coop_wait_start_ms = now_ms;
-    fe->coop_teleport_pending = false;
+
   }
 
   // Shared power-ups: announce upgrades so the partner gets them too.
@@ -883,23 +857,20 @@ static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
 
   SMB_set_hold_at_flag(fe->smb_state, fe->coop_hold);
 
-  // Death: remember where the partner was, and teleport there on respawn.
+  // Death: respawn on the screen where the partner is, instead of the checkpoint.
   if (online && player_is_dead(ram)) {
     if (!fe->coop_dead_sent) {
       send_coop_event(fe, "{\"kind\":\"dead\"}");
       fe->coop_dead_sent = true;
-      fe->coop_teleport_pending = fe->ghost_valid && fe->ghost_level == level;
-      fe->coop_teleport_level = level;
-      fe->coop_teleport_x = fe->ghost_x;
-      fe->coop_teleport_y = fe->ghost_y;
+
+      if (fe->ghost_valid && fe->ghost_level == level) {
+        // The game reloads the level around this page when it processes the
+        // death, so the partner's screen is parsed and valid.
+        SMB_set_respawn_page(fe->smb_state, (fe->ghost_x >> 8) & 0xFF);
+      }
     }
-  } else if (!player_is_dead(ram)) {
-    if (fe->coop_teleport_pending) {
-      apply_death_teleport(fe, ram);
-    }
-    if (fe->coop_dead_sent && ram[0x000E] == 8) {
-      fe->coop_dead_sent = false;
-    }
+  } else if (fe->coop_dead_sent && ram[0x000E] == 8) {
+    fe->coop_dead_sent = false;
   }
 }
 
@@ -1204,6 +1175,7 @@ int sdl_tick(void *userdata) {
   }
 
   if (fe->smb_gl) {
+    apply_classic_rules(smb_state);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
@@ -1242,6 +1214,7 @@ int sdl_tick(void *userdata) {
     // draw_tile is invoked for each tile during SMB_tick, and will update the pixel buffer
     SMBraster_set_buffer(fe->smb_raster, surf->pixels, fe->pixels_stride);
     SMBraster_clear(fe->smb_raster);
+    apply_classic_rules(smb_state);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
