@@ -33,6 +33,8 @@ struct netplay {
 
   char room[8];
   char error[160];
+  char last_relay[2048];
+  uint32_t relay_seq;
 
   char rx[RX_MAX];
   size_t rx_len;
@@ -184,6 +186,19 @@ static void netplay_process_message(struct netplay *np) {
     np->has_peer = false;
   } else if (strcmp(type, "relay") == 0) {
     np->has_peer = true;
+
+    const char *data = strstr(np->rx, "\"data\":");
+    if (data) {
+      data += 7;
+      snprintf(np->last_relay, sizeof(np->last_relay), "%s", data);
+
+      char *end = strrchr(np->last_relay, '}');
+      if (end) {
+        *end = 0;
+      }
+
+      np->relay_seq++;
+    }
   } else if (strcmp(type, "room_closed") == 0) {
     np->joined = false;
     np->has_peer = false;
@@ -422,6 +437,14 @@ const char *netplay_room(const struct netplay *np) {
 
 const char *netplay_error(const struct netplay *np) {
   return np && np->error[0] ? np->error : NULL;
+}
+
+uint32_t netplay_relay_seq(const struct netplay *np) {
+  return np ? np->relay_seq : 0;
+}
+
+const char *netplay_last_relay(const struct netplay *np) {
+  return np && np->last_relay[0] ? np->last_relay : NULL;
 }
 
 void netplay_send_relay(struct netplay *np, const char *json_data) {

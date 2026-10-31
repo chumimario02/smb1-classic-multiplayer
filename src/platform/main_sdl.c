@@ -90,6 +90,15 @@ struct frontend_userdata {
   int menu_selection;
   char join_code[8];
   int join_code_len;
+  uint32_t last_ghost_send_ms;
+  uint32_t last_ghost_seq;
+  bool ghost_valid;
+  int ghost_x;
+  int ghost_y;
+  int ghost_draw_x;
+  int ghost_draw_y;
+  int ghost_sprite_count;
+  int ghost_sprites[8][4];
   struct SMB_buttons player1_buttons;
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
@@ -551,6 +560,177 @@ static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
   }
 }
 
+static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
+  if (!fe->netplay || !netplay_joined(fe->netplay) || !netplay_has_peer(fe->netplay)) {
+    return;
+  }
+
+  if (now_ms - fe->last_ghost_send_ms < 100) {
+    return;
+  }
+  fe->last_ghost_send_ms = now_ms;
+
+  u8 *ram = SMB_ram(fe->smb_state);
+  const int page = ram[0x006D];
+  const int px = ram[0x0086];
+  const int py = ram[0x00CE];
+  const int spr_off = ram[0x06E4];
+
+  if (spr_off > 0xF0) {
+    return;
+  }
+
+  const int abs_x = page * 256 + px;
+  const int base = 0x0200 + spr_off;
+
+  char data[768];
+  int n = snprintf(data, sizeof(data),
+                   "{\"kind\":\"g\",\"x\":%d,\"y\":%d,\"s\":[",
+                   abs_x, py);
+
+  int count = 0;
+  for (int i = 0; i < 8; i++) {
+    const int oy = ram[base + i * 4] + 1;
+    const int tile = ram[base + i * 4 + 1];
+    const int attr = ram[base + i * 4 + 2];
+    const int ox = ram[base + i * 4 + 3];
+
+    if (tile == 0xFC || oy >= 240) {
+      continue;
+    }
+
+    int dx = ox - px;
+    int dy = oy - py;
+    if (dx > 128) dx -= 256;
+    if (dx < -128) dx += 256;
+    if (dy > 128) dy -= 256;
+    if (dy < -128) dy += 256;
+
+    n += snprintf(data + n, sizeof(data) - n, "%s[%d,%d,%d,%d]",
+                  count ? "," : "", dx, dy, tile, attr);
+    count++;
+  }
+
+  snprintf(data + n, sizeof(data) - n, "]}");
+  netplay_send_relay(fe->netplay, data);
+}
+
+static void parse_ghost_data(struct frontend_userdata *fe, const char *json) {
+  if (!json || !strstr(json, "\"kind\":\"g\"")) {
+    return;
+  }
+
+  const char *p = strstr(json, "\"x\":");
+  if (!p) return;
+  const int x = atoi(p + 4);
+
+  p = strstr(json, "\"y\":");
+  if (!p) return;
+  const int y = atoi(p + 4);
+
+  fe->ghost_x = x;
+  fe->ghost_y = y;
+
+  if (!fe->ghost_valid) {
+    fe->ghost_draw_x = x;
+    fe->ghost_draw_y = y;
+  }
+
+  int count = 0;
+  p = strstr(json, "\"s\":[");
+  if (p) {
+    p += 5;
+
+    while (*p && *p != ']' && count < 8) {
+      if (*p == '[') {
+        int dx, dy, tile, attr;
+        if (sscanf(p, "[%d,%d,%d,%d]", &dx, &dy, &tile, &attr) != 4) {
+          break;
+        }
+
+        fe->ghost_sprites[count][0] = dx;
+        fe->ghost_sprites[count][1] = dy;
+        fe->ghost_sprites[count][2] = tile;
+        fe->ghost_sprites[count][3] = attr;
+        count++;
+
+        p = strchr(p, ']');
+        if (!p) break;
+        p++;
+      } else {
+        p++;
+      }
+    }
+  }
+
+  fe->ghost_sprite_count = count;
+  fe->ghost_valid = true;
+}
+
+static void update_ghost(struct frontend_userdata *fe) {
+  if (!fe->netplay || !netplay_has_peer(fe->netplay)) {
+    fe->ghost_valid = false;
+    return;
+  }
+
+  const uint32_t seq = netplay_relay_seq(fe->netplay);
+  if (seq == fe->last_ghost_seq) {
+    return;
+  }
+
+  fe->last_ghost_seq = seq;
+  parse_ghost_data(fe, netplay_last_relay(fe->netplay));
+}
+
+static void draw_ghost(struct frontend_userdata *fe) {
+  if (!fe->ghost_valid) {
+    return;
+  }
+
+  u8 *ram = SMB_ram(fe->smb_state);
+  const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
+
+  const int dx = fe->ghost_x - fe->ghost_draw_x;
+  const int dy = fe->ghost_y - fe->ghost_draw_y;
+  fe->ghost_draw_x += dx / 3;
+  fe->ghost_draw_y += dy / 3;
+  if (abs(dx) <= 2) fe->ghost_draw_x = fe->ghost_x;
+  if (abs(dy) <= 2) fe->ghost_draw_y = fe->ghost_y;
+
+  const int gx = fe->ghost_draw_x - cam_abs;
+  const int gy = fe->ghost_draw_y;
+
+  if (gx < -32 || gx > SMB_RENDER_WIDTH + 32) {
+    return;
+  }
+
+  for (int i = 0; i < fe->ghost_sprite_count; i++) {
+    const int sx = fe->ghost_sprites[i][0];
+    const int sy = fe->ghost_sprites[i][1];
+    const int tileidx = fe->ghost_sprites[i][2];
+    const int attr = fe->ghost_sprites[i][3];
+
+    if (tileidx == 0xFC) {
+      continue;
+    }
+
+    struct SMB_tile tile = {0};
+    tile.x = gx + sx;
+    tile.y = gy + sy;
+    tile.tileidx = tileidx;
+    tile.paletteidx = 6; // ghost sprite palette
+    tile.flip_horz = (attr & 0x40) != 0;
+    tile.flip_vert = (attr & 0x80) != 0;
+    tile.extra_type = TILE_TYPE_SPRITE;
+
+    if (fe->smb_gl) {
+      SMBgl_draw_tile(fe->smb_gl, tile);
+    } else if (fe->smb_raster) {
+      SMBraster_draw_tile(fe->smb_raster, tile);
+    }
+  }
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
@@ -780,6 +960,9 @@ int sdl_tick(void *userdata) {
   if (fe->smb_gl) {
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    send_ghost_state(fe, SDL_GetTicks());
+    update_ghost(fe);
+    draw_ghost(fe);
     update_pause_menu(fe);
     if (fe->pause_menu_active) {
       draw_pause_menu(fe);
@@ -814,6 +997,9 @@ int sdl_tick(void *userdata) {
     SMBraster_clear(fe->smb_raster);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    send_ghost_state(fe, SDL_GetTicks());
+    update_ghost(fe);
+    draw_ghost(fe);
     update_pause_menu(fe);
     if (fe->pause_menu_active) {
       draw_pause_menu(fe);

@@ -29,8 +29,8 @@
 
 ## Fase 3 — Fantasma remoto
 
-- [ ] Enviar posición/animación del jugador a ~10 Hz.
-- [ ] Dibujar el fantasma del otro jugador con interpolación.
+- [x] Enviar posición/animación del jugador a ~10 Hz.
+- [x] Dibujar el fantasma del otro jugador con interpolación.
 - [ ] Indicador cuando el fantasma está fuera de pantalla.
 - [ ] Emotes básicos.
 

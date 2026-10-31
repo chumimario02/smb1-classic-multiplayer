@@ -28,6 +28,7 @@ Implemented in the Windows build:
 - In-game pause menu with **Continue** and **Title Screen** options.
 - Main menu with **Singleplayer** and **Multiplayer**.
 - Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
+- Ghost rendering: the other player's Mario is sent at ~10 Hz and drawn in your level.
 
 Still planned:
 
@@ -133,7 +134,9 @@ Implemented in the client:
 - Relay messages between the two players.
 - In-game status overlay (`SALA XXXX`, `AMIGO CONECTADO`).
 
-Not implemented yet: ghost rendering, shared power-ups, eco blocks, lobby UI.
+The ghost is visual only: it follows the other player's position and animation,
+but does not collide with your world. Shared power-ups and eco blocks are the
+next phases.
 
 From the main menu choose **Multiplayer**:
 
