@@ -4186,6 +4186,8 @@ void PlayerHeadCollision(const u8 param_1, const u16 mt_x, const u16 mt_y) {
 
   if (Block_State[sprdataoff] == 0x11) {
     BumpBlock(mt_x, mt_y, param_1);
+    // Remember which power-up we spawned so the partner's world shows the same.
+    SMB_STATE->eco_break_item = (int)PowerUpType;
   } else {
     BrickShatter(mt_x, mt_y);
     // Online co-op: tell the frontend so it can break the same brick for the
@@ -4193,6 +4195,7 @@ void PlayerHeadCollision(const u8 param_1, const u16 mt_x, const u16 mt_y) {
     SMB_STATE->eco_break_x = (int)mt_x * 16;
     SMB_STATE->eco_break_row = (int)mt_y;
     SMB_STATE->eco_break_metatile = MT_0;
+    SMB_STATE->eco_break_item = -1;
     SMB_STATE->eco_break_pending = true;
   }
   BlockOffsetToggle ^= 1;

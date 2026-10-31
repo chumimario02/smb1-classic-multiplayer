@@ -232,7 +232,8 @@ void SMB_set_respawn_page(struct SMB_state *state, int page) {
   state->respawn_page = page;
 }
 
-bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row, int *metatile) {  if (!state->eco_break_pending) {
+bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row, int *metatile, int *item) {
+  if (!state->eco_break_pending) {
     return false;
   }
 
@@ -241,11 +242,12 @@ bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row, int *me
   if (world_x) *world_x = state->eco_break_x;
   if (row) *row = state->eco_break_row;
   if (metatile) *metatile = state->eco_break_metatile;
+  if (item) *item = state->eco_break_item;
 
   return true;
 }
 
-bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row, int metatile) {
+bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row, int metatile, int item) {
   if (state->which_game != GAME_SMB1) {
     return false;
   }
@@ -284,6 +286,11 @@ bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row, int metatil
     case MT_BRICK_2_POWERUP:
     case MT_BRICK_POWERUP:
       smb1_MushFlowerBlock(0);
+      // Force the same item the partner saw: PwrUpJmp turns a mushroom into a
+      // flower when this player is already big, which desynced the two worlds.
+      if (item >= 0 && item < _POWERUP_NUM) {
+        PowerUpType = (u8)item;
+      }
       break;
     case MT_QUESTIONBLOCK_COIN:
     case MT_HIDDEN_1COIN:

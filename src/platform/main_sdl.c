@@ -107,6 +107,7 @@ struct frontend_userdata {
   int coop_level;
   int coop_last_status;
   int coop_last_star;
+  int coop_pending_power;
   bool coop_clear_sent;
   bool coop_local_cleared;
   bool coop_peer_cleared;
@@ -446,10 +447,28 @@ static void apply_skin(struct frontend_userdata *fe) {
   };
 
   const int skin = fe->skin & 3;
+  const int status = SMB_ram(fe->smb_state)[0x0756]; // PlayerStatus
   u8 *ppu = SMB_ppuram(fe->smb_state);
-  ppu[0x3F11] = skins[skin][0];
-  ppu[0x3F12] = skins[skin][1];
-  ppu[0x3F13] = skins[skin][2];
+
+  if (skin == 0) {
+    // Mario: leave the game's own palette alone so normal/fire colors work.
+  } else if (skin == 1) {
+    // Luigi: green normally, and a white/green "fire Luigi" with the flower.
+    if (status == 2) {
+      ppu[0x3F11] = 0x30; // white shirt
+      ppu[0x3F12] = 0x27; // skin
+      ppu[0x3F13] = 0x1A; // green overalls
+    } else {
+      ppu[0x3F11] = skins[1][0];
+      ppu[0x3F12] = skins[1][1];
+      ppu[0x3F13] = skins[1][2];
+    }
+  } else {
+    // Ice and Fire skins are a fixed look, whatever power you have.
+    ppu[0x3F11] = skins[skin][0];
+    ppu[0x3F12] = skins[skin][1];
+    ppu[0x3F13] = skins[skin][2];
+  }
 
   // The partner's ghost uses sprite palette 2, so it can show their skin too.
   const int gskin = fe->ghost_skin & 3;
@@ -823,7 +842,7 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
   if (strstr(json, "\"kind\":\"pw\",")) {
     const char *p = strstr(json, "\"p\":");
     if (p) {
-      SMB_give_power(fe->smb_state, atoi(p + 4));
+      fe->coop_pending_power = atoi(p + 4);
     }
     return;
   }
@@ -832,8 +851,9 @@ static void handle_relay(struct frontend_userdata *fe, const char *json) {
     const char *x = strstr(json, "\"x\":");
     const char *r = strstr(json, "\"r\":");
     const char *m = strstr(json, "\"m\":");
+    const char *i = strstr(json, "\"i\":");
     if (x && r) {
-      SMB_eco_break_at(fe->smb_state, atoi(x + 4), atoi(r + 4), m ? atoi(m + 4) : 0);
+      SMB_eco_break_at(fe->smb_state, atoi(x + 4), atoi(r + 4), m ? atoi(m + 4) : 0, i ? atoi(i + 4) : -1);
     }
     return;
   }
@@ -903,10 +923,27 @@ static void update_coop(struct frontend_userdata *fe, uint32_t now_ms) {
 
   // Shared power-ups: announce upgrades so the partner gets them too.
   if (online) {
-    int bx = 0, br = 0, bm = 0;
-    if (SMB_take_eco_break(fe->smb_state, &bx, &br, &bm)) {
+    // Apply a power-up received from the partner once we are in control.
+    if (fe->coop_pending_power > 0) {
+      const int status = ram[0x0756];
+      if (status >= fe->coop_pending_power) {
+        fe->coop_pending_power = 0;
+      } else if (ram[0x000E] == 8) {
+        if (fe->coop_pending_power == 2 && status == 0) {
+          // Small + flower: grow first (like the game), then turn into fire
+          // once the grow animation ends.
+          SMB_give_power(fe->smb_state, 1);
+        } else {
+          SMB_give_power(fe->smb_state, fe->coop_pending_power);
+          fe->coop_pending_power = 0;
+        }
+      }
+    }
+
+    int bx = 0, br = 0, bm = 0, bi = -1;
+    if (SMB_take_eco_break(fe->smb_state, &bx, &br, &bm, &bi)) {
       char msg[64];
-      snprintf(msg, sizeof(msg), "{\"kind\":\"brk\",\"x\":%d,\"r\":%d,\"m\":%d}", bx, br, bm);
+      snprintf(msg, sizeof(msg), "{\"kind\":\"brk\",\"x\":%d,\"r\":%d,\"m\":%d,\"i\":%d}", bx, br, bm, bi);
       send_coop_event(fe, msg);
     }
 
@@ -1275,9 +1312,9 @@ int sdl_tick(void *userdata) {
 
   if (fe->smb_gl) {
     apply_classic_rules(smb_state);
-    apply_skin(fe);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    apply_skin(fe);
     send_ghost_state(fe, SDL_GetTicks());
     update_ghost(fe);
     update_coop(fe, SDL_GetTicks());
@@ -1315,9 +1352,9 @@ int sdl_tick(void *userdata) {
     SMBraster_set_buffer(fe->smb_raster, surf->pixels, fe->pixels_stride);
     SMBraster_clear(fe->smb_raster);
     apply_classic_rules(smb_state);
-    apply_skin(fe);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
+    apply_skin(fe);
     send_ghost_state(fe, SDL_GetTicks());
     update_ghost(fe);
     update_coop(fe, SDL_GetTicks());

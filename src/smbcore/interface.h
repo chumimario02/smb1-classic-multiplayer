@@ -21,6 +21,7 @@ struct SMB_state {
   int eco_break_x;
   int eco_break_row;
   int eco_break_metatile;
+  int eco_break_item;
   bool eco_break_pending;
   // Last power-up collected, so the partner can remove their copy.
   int eco_item_x;
