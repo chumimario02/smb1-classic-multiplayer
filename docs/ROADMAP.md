@@ -70,6 +70,7 @@
 ## Fase 8 — Pulido
 
 - [ ] Reconexión.
+- [x] Skins de color (Mario, Luigi, hielo, fuego) elegibles en el menú.
 - [ ] Chat o más emotes.
 - [ ] Ajustes de servidor en el menú.
 - [ ] Pruebas de latencia y pérdida de paquetes.

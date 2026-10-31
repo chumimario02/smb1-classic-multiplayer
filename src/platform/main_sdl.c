@@ -90,6 +90,7 @@ struct frontend_userdata {
   int menu_selection;
   char join_code[8];
   int join_code_len;
+  int skin;
   uint32_t last_ghost_send_ms;
   uint32_t last_ghost_seq;
   bool ghost_valid;
@@ -100,6 +101,7 @@ struct frontend_userdata {
   int ghost_draw_y;
   int ghost_sprite_count;
   int ghost_sprites[8][4];
+  int ghost_skin;
 
   // Online co-op state
   int coop_level;
@@ -422,6 +424,32 @@ static void ensure_menu_palette(struct frontend_userdata *fe) {
   }
 }
 
+static const char *skin_names[4] = {"MARIO", "LUIGI", "HIELO", "FUEGO"};
+
+// Recolors the player's sprite palette. SMB1 stores the player colors in sprite
+// palette 0 (PPU $3F11-$3F13); overwriting them every frame gives us skins that
+// also survive power-ups and level changes.
+static void apply_skin(struct frontend_userdata *fe) {
+  static const u8 skins[4][3] = {
+    {0x16, 0x27, 0x18}, // MARIO: red shirt, skin, brown overalls
+    {0x1A, 0x27, 0x18}, // LUIGI: green
+    {0x21, 0x30, 0x11}, // HIELO: ice blue
+    {0x37, 0x27, 0x16}, // FUEGO: white/red
+  };
+
+  const int skin = fe->skin & 3;
+  u8 *ppu = SMB_ppuram(fe->smb_state);
+  ppu[0x3F11] = skins[skin][0];
+  ppu[0x3F12] = skins[skin][1];
+  ppu[0x3F13] = skins[skin][2];
+
+  // The partner's ghost uses sprite palette 2, so it can show their skin too.
+  const int gskin = fe->ghost_skin & 3;
+  ppu[0x3F19] = skins[gskin][0];
+  ppu[0x3F1A] = skins[gskin][1];
+  ppu[0x3F1B] = skins[gskin][2];
+}
+
 static void draw_menu(struct frontend_userdata *fe) {
   ensure_menu_palette(fe);
 
@@ -435,13 +463,18 @@ static void draw_menu(struct frontend_userdata *fe) {
     draw_font_text(fe, fe->menu_selection == 0 ? 64 : 68, y, "-", 2);
     draw_font_text(fe, 72, 184, "ENTER = ELEGIR", 2);
   } else if (fe->menu == MENU_MULTIPLAYER) {
-    draw_font_text(fe, 84, 96, "MULTIPLAYER", 2);
-    draw_font_text(fe, 88, 120, "HOST GAME", 2);
-    draw_font_text(fe, 88, 144, "JOIN GAME", 2);
-    draw_font_text(fe, 108, 168, "BACK", 2);
+    draw_font_text(fe, 84, 88, "MULTIPLAYER", 2);
+    draw_font_text(fe, 88, 112, "HOST GAME", 2);
+    draw_font_text(fe, 88, 136, "JOIN GAME", 2);
 
-    const int y = 120 + fe->menu_selection * 24;
-    const int x = fe->menu_selection == 2 ? 96 : 76;
+    char skin_line[24];
+    snprintf(skin_line, sizeof(skin_line), "SKIN: %s", skin_names[fe->skin % 4]);
+    draw_font_text(fe, 72, 160, skin_line, 2);
+
+    draw_font_text(fe, 108, 184, "BACK", 2);
+
+    const int y = 112 + fe->menu_selection * 24;
+    const int x = fe->menu_selection == 3 ? 96 : (fe->menu_selection == 2 ? 60 : 76);
     draw_font_text(fe, x, y, "-", 2);
   } else if (fe->menu == MENU_JOIN) {
     draw_font_text(fe, 88, 96, "JOIN GAME", 2);
@@ -581,7 +614,13 @@ static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
     if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
       if (fe->menu_selection > 0) fe->menu_selection--;
     } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
-      if (fe->menu_selection < 2) fe->menu_selection++;
+      if (fe->menu_selection < 3) fe->menu_selection++;
+    } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A ||
+               sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_D) {
+      if (fe->menu_selection == 2) {
+        const int dir = (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A) ? 3 : 1;
+        fe->skin = (fe->skin + dir) % 4;
+      }
     } else if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) {
       if (fe->menu_selection == 0) {
         start_online(fe, true, NULL);
@@ -589,6 +628,8 @@ static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
         fe->menu = MENU_JOIN;
         fe->join_code_len = 0;
         fe->join_code[0] = 0;
+      } else if (fe->menu_selection == 2) {
+        fe->skin = (fe->skin + 1) % 4;
       } else {
         fe->menu = MENU_MAIN;
         fe->menu_selection = 0;
@@ -643,8 +684,8 @@ static void send_ghost_state(struct frontend_userdata *fe, uint32_t now_ms) {
 
   char data[768];
   int n = snprintf(data, sizeof(data),
-                   "{\"kind\":\"g\",\"l\":%d,\"x\":%d,\"y\":%d,\"s\":[",
-                   level, abs_x, py);
+                   "{\"kind\":\"g\",\"l\":%d,\"k\":%d,\"x\":%d,\"y\":%d,\"s\":[",
+                   level, fe->skin & 3, abs_x, py);
 
   int count = 0;
   for (int i = 0; i < 8; i++) {
@@ -688,6 +729,9 @@ static void parse_ghost_data(struct frontend_userdata *fe, const char *json) {
 
   p = strstr(json, "\"l\":");
   fe->ghost_level = p ? atoi(p + 4) : -1;
+
+  p = strstr(json, "\"k\":");
+  if (p) fe->ghost_skin = atoi(p + 4) & 3;
 
   fe->ghost_x = x;
   fe->ghost_y = y;
@@ -1176,6 +1220,7 @@ int sdl_tick(void *userdata) {
 
   if (fe->smb_gl) {
     apply_classic_rules(smb_state);
+    apply_skin(fe);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
@@ -1215,6 +1260,7 @@ int sdl_tick(void *userdata) {
     SMBraster_set_buffer(fe->smb_raster, surf->pixels, fe->pixels_stride);
     SMBraster_clear(fe->smb_raster);
     apply_classic_rules(smb_state);
+    apply_skin(fe);
     SMB_tick(smb_state);
     apply_classic_rules(smb_state);
     send_ghost_state(fe, SDL_GetTicks());
@@ -1663,3 +1709,4 @@ exit:
 
   return 0;
 }
+
