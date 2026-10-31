@@ -29,7 +29,9 @@ Implemented in the Windows build:
 - Main menu with **Singleplayer** and **Multiplayer**.
 - Multiplayer menu with **Host Game** / **Join Game** and 4-letter code entry.
 - **Skins**: Mario, Luigi, Ice Mario and Fire Mario (palette swaps) chosen from the
-  multiplayer menu with Left/Right. Your partner sees your skin on your ghost.
+  main menu or the multiplayer menu with Left/Right. Your partner sees your skin
+  on your ghost. Power-ups share the player palette in SMB1, so mushrooms and
+  fire flowers are tinted to match your skin too (intended, it is part of the look).
 - Ghost rendering: the other player's Mario is sent at ~30 Hz and drawn in your level.
 
 Still planned:
