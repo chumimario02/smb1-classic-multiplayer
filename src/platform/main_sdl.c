@@ -126,6 +126,7 @@ struct frontend_userdata {
 #ifdef USE_SDL2
   SDL_GameController *gamecontroller;
   struct SMB_buttons player1_gamepad_buttons;
+  struct SMB_buttons prev_gamepad_buttons;
 #endif
   bool rendering_enabled;
   struct config *cfg;
@@ -192,6 +193,49 @@ static void poll_gamepad(struct frontend_userdata *fe) {
   }
 
   fe->player1_gamepad_buttons = b;
+}
+
+static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown);
+
+// Puente gamepad -> menus: reutiliza el mismo camino que el teclado.
+static void poll_gamepad_menu(struct frontend_userdata *fe) {
+  const struct SMB_buttons cur = fe->player1_gamepad_buttons;
+  struct SMB_buttons *prev = &fe->prev_gamepad_buttons;
+
+  if (fe->menu == MENU_GAME) {
+    // En juego solo nos interesa el menu de pausa.
+    u8 *ram = SMB_ram(fe->smb_state);
+    if (ram && (ram[0x0776] & 1) != 0) {
+      if (cur.u && !prev->u) on_keypress_change(fe, SDL_SCANCODE_UP, true);
+      if (cur.d && !prev->d) on_keypress_change(fe, SDL_SCANCODE_DOWN, true);
+      if ((cur.a && !prev->a) || (cur.start && !prev->start)) {
+        on_keypress_change(fe, SDL_SCANCODE_SPACE, true);
+        on_keypress_change(fe, SDL_SCANCODE_SPACE, false);
+      }
+    }
+  } else {
+    struct {
+      bool now;
+      bool was;
+      SDL_Scancode sc;
+    } keys[] = {
+      { cur.u, prev->u, SDL_SCANCODE_UP },
+      { cur.d, prev->d, SDL_SCANCODE_DOWN },
+      { cur.l, prev->l, SDL_SCANCODE_LEFT },
+      { cur.r, prev->r, SDL_SCANCODE_RIGHT },
+      { cur.a, prev->a, SDL_SCANCODE_RETURN },
+      { cur.b, prev->b, SDL_SCANCODE_ESCAPE },
+      { cur.start, prev->start, SDL_SCANCODE_RETURN },
+      { cur.select, prev->select, SDL_SCANCODE_ESCAPE },
+    };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+      if (keys[i].now != keys[i].was) {
+        on_keypress_change(fe, keys[i].sc, keys[i].now);
+      }
+    }
+  }
+
+  *prev = cur;
 }
 #endif
 
@@ -1304,6 +1348,7 @@ int sdl_tick(void *userdata) {
 
 #ifdef USE_SDL2
   poll_gamepad(fe);
+  poll_gamepad_menu(fe);
 #endif
 
   if (fe->netplay) {
