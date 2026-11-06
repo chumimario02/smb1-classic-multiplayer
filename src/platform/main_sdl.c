@@ -83,6 +83,7 @@ enum menu_state {
 struct frontend_userdata {
   FILE *romfile;
   struct SMB_state *smb_state;
+  struct SMB_state *smb_state2;
   struct SMB_audio *audio;
   struct Movie *movie;
   struct netplay *netplay;
@@ -102,6 +103,22 @@ struct frontend_userdata {
   int ghost_sprite_count;
   int ghost_sprites[8][4];
   int ghost_skin;
+
+  // Local 2-player co-op (both share player 1's camera and window)
+  bool local_coop;
+  int local_level1;
+  int local_level2;
+  uint32_t local_level_change_ms;
+  int local_pending_power1;
+  int local_pending_power2;
+  int local_last_star1;
+  int local_last_star2;
+  bool local_cleared1;
+  bool local_cleared2;
+  bool local_waiting;
+  uint32_t local_wait_start_ms;
+  bool local_p2_restarting;
+  uint32_t local_p2_restart_ms;
 
   // Online co-op state
   int coop_level;
@@ -125,7 +142,9 @@ struct frontend_userdata {
   struct SMB_buttons player2_buttons;
 #ifdef USE_SDL2
   SDL_GameController *gamecontroller;
+  SDL_GameController *gamecontroller2;
   struct SMB_buttons player1_gamepad_buttons;
+  struct SMB_buttons player2_gamepad_buttons;
   struct SMB_buttons prev_gamepad_buttons;
 #endif
   bool rendering_enabled;
@@ -168,13 +187,25 @@ void joy1(void *userdata, struct SMB_buttons *buttons) {
 }
 void joy2(void *userdata, struct SMB_buttons *buttons) {
   struct frontend_userdata *fe = userdata;
+#ifdef USE_SDL2
+  const struct SMB_buttons *kb = &fe->player2_buttons;
+  const struct SMB_buttons *pad = &fe->player2_gamepad_buttons;
+  buttons->u      = kb->u      || pad->u;
+  buttons->d      = kb->d      || pad->d;
+  buttons->l      = kb->l      || pad->l;
+  buttons->r      = kb->r      || pad->r;
+  buttons->select = kb->select || pad->select;
+  buttons->start  = kb->start  || pad->start;
+  buttons->b      = kb->b      || pad->b;
+  buttons->a      = kb->a      || pad->a;
+#else
   *buttons = fe->player2_buttons;
+#endif
 }
 
 #ifdef USE_SDL2
-static void poll_gamepad(struct frontend_userdata *fe) {
+static void read_gamepad(SDL_GameController *gc, struct SMB_buttons *out) {
   struct SMB_buttons b = {0};
-  SDL_GameController *gc = fe->gamecontroller;
 
   if (gc) {
     const int deadzone = 12000;
@@ -192,7 +223,12 @@ static void poll_gamepad(struct frontend_userdata *fe) {
     b.select = SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK);
   }
 
-  fe->player1_gamepad_buttons = b;
+  *out = b;
+}
+
+static void poll_gamepad(struct frontend_userdata *fe) {
+  read_gamepad(fe->gamecontroller, &fe->player1_gamepad_buttons);
+  read_gamepad(fe->gamecontroller2, &fe->player2_gamepad_buttons);
 }
 
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown);
@@ -298,6 +334,33 @@ void draw_tile(void *userdata, const struct SMB_tile tile) {
   } else if (fe->smb_raster) {
     SMBraster_draw_tile(fe->smb_raster, tile);
   }
+}
+
+// The second player's world runs headless: only its RAM is used (to draw the
+// partner sprite in player 1's view), so it must never touch video or audio.
+static void noop_update_pattern_tables(void *userdata, const u8 *chrrom) {
+  (void)userdata;
+  (void)chrrom;
+}
+
+static void noop_update_palette(void *userdata, const u8 *palette_indices) {
+  (void)userdata;
+  (void)palette_indices;
+}
+
+static void noop_draw_tile(void *userdata, const struct SMB_tile tile) {
+  (void)userdata;
+  (void)tile;
+}
+
+static void noop_apu_write_register(void *userdata, u16 addr, u8 data) {
+  (void)userdata;
+  (void)addr;
+  (void)data;
+}
+
+static void noop_apu_end_frame(void *userdata) {
+  (void)userdata;
 }
 
 bool load_palette(u8 *rgb_palette, const char *filename) {
@@ -527,17 +590,18 @@ static void draw_menu(struct frontend_userdata *fe) {
   draw_font_text(fe, 80, 56, "SMB1 CLASSIC", 2);
 
   if (fe->menu == MENU_MAIN) {
-    draw_font_text(fe, 80, 100, "SINGLEPLAYER", 2);
-    draw_font_text(fe, 84, 124, "MULTIPLAYER", 2);
+    draw_font_text(fe, 84, 92, "SINGLEPLAYER", 2);
+    draw_font_text(fe, 88, 116, "LOCAL 2P", 2);
+    draw_font_text(fe, 84, 140, "MULTIPLAYER", 2);
 
     char skin_line[24];
     snprintf(skin_line, sizeof(skin_line), "SKIN: %s", skin_names[fe->skin & 3]);
-    draw_font_text(fe, 72, 148, skin_line, 2);
+    draw_font_text(fe, 72, 164, skin_line, 2);
 
-    const int y = 100 + fe->menu_selection * 24;
-    const int x = fe->menu_selection == 0 ? 64 : (fe->menu_selection == 1 ? 68 : 56);
+    const int y = 92 + fe->menu_selection * 24;
+    const int x = fe->menu_selection == 0 ? 68 : (fe->menu_selection == 1 ? 72 : (fe->menu_selection == 2 ? 68 : 56));
     draw_font_text(fe, x, y, "-", 2);
-    draw_font_text(fe, 64, 184, "ENTER = ELEGIR", 2);
+    draw_font_text(fe, 64, 200, "ENTER = ELEGIR", 2);
   } else if (fe->menu == MENU_MULTIPLAYER) {
     draw_font_text(fe, 84, 88, "MULTIPLAYER", 2);
     draw_font_text(fe, 88, 112, "HOST GAME", 2);
@@ -620,14 +684,75 @@ static void start_singleplayer(struct frontend_userdata *fe) {
     fe->netplay = NULL;
   }
 
+  fe->local_coop = false;
+  fe->ghost_valid = false;
+  if (fe->smb_state2) {
+    SMB_set_invulnerable(fe->smb_state2, false);
+    SMB_set_hold_at_flag(fe->smb_state2, false);
+  }
+
   fe->menu = MENU_GAME;
   SMB_return_to_title(fe->smb_state);
+}
+
+static void start_local_coop(struct frontend_userdata *fe) {
+  if (!fe->smb_state2 || SMB_which_game(fe->smb_state) != GAME_SMB1) {
+    return;
+  }
+
+  if (fe->netplay) {
+    netplay_destroy(fe->netplay);
+    fe->netplay = NULL;
+  }
+
+  fe->local_coop = true;
+  fe->menu = MENU_GAME;
+  fe->menu_selection = 0;
+  fe->pause_menu_active = false;
+  fe->ghost_valid = false;
+  fe->ghost_sprite_count = 0;
+
+  memset(&fe->player2_buttons, 0, sizeof(fe->player2_buttons));
+#ifdef USE_SDL2
+  memset(&fe->player2_gamepad_buttons, 0, sizeof(fe->player2_gamepad_buttons));
+#endif
+
+  SMB_set_invulnerable(fe->smb_state, false);
+  SMB_set_invulnerable(fe->smb_state2, true);
+  SMB_set_hold_at_flag(fe->smb_state, false);
+  SMB_set_hold_at_flag(fe->smb_state2, false);
+
+  const u8 world = (u8)fe->cfg->world;
+  const u8 level = (u8)fe->cfg->level;
+  SMB_start_now(fe->smb_state, world, level);
+  SMB_start_now(fe->smb_state2, world, level);
+
+  fe->local_level1 = -1;
+  fe->local_level2 = -1;
+  fe->local_level_change_ms = SDL_GetTicks();
+  fe->local_pending_power1 = 0;
+  fe->local_pending_power2 = 0;
+  fe->local_last_star1 = 0;
+  fe->local_last_star2 = 0;
+  fe->local_cleared1 = false;
+  fe->local_cleared2 = false;
+  fe->local_waiting = false;
+  fe->local_wait_start_ms = SDL_GetTicks();
+  fe->local_p2_restarting = false;
+  fe->local_p2_restart_ms = SDL_GetTicks();
 }
 
 static void start_online(struct frontend_userdata *fe, bool host, const char *room) {
   if (fe->netplay) {
     netplay_destroy(fe->netplay);
     fe->netplay = NULL;
+  }
+
+  fe->local_coop = false;
+  fe->ghost_valid = false;
+  if (fe->smb_state2) {
+    SMB_set_invulnerable(fe->smb_state2, false);
+    SMB_set_hold_at_flag(fe->smb_state2, false);
   }
 
   struct netplay_config npcfg;
@@ -659,9 +784,21 @@ static void return_to_main_menu(struct frontend_userdata *fe) {
     fe->netplay = NULL;
   }
 
+  fe->local_coop = false;
+  fe->ghost_valid = false;
+  fe->local_pending_power1 = 0;
+  fe->local_pending_power2 = 0;
+  memset(&fe->player2_buttons, 0, sizeof(fe->player2_buttons));
+#ifdef USE_SDL2
+  memset(&fe->player2_gamepad_buttons, 0, sizeof(fe->player2_gamepad_buttons));
+#endif
+  if (fe->smb_state2) {
+    SMB_set_invulnerable(fe->smb_state2, false);
+    SMB_set_hold_at_flag(fe->smb_state2, false);
+  }
+
   SMB_set_hold_at_flag(fe->smb_state, false);
   fe->coop_hold = false;
-  fe->ghost_valid = false;
 
   u8 *ram = SMB_ram(fe->smb_state);
   ram[0x0776] = 0;
@@ -677,10 +814,10 @@ static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
     if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) {
       if (fe->menu_selection > 0) fe->menu_selection--;
     } else if (sc == SDL_SCANCODE_DOWN || sc == SDL_SCANCODE_S) {
-      if (fe->menu_selection < 2) fe->menu_selection++;
+      if (fe->menu_selection < 3) fe->menu_selection++;
     } else if (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A ||
                sc == SDL_SCANCODE_RIGHT || sc == SDL_SCANCODE_D) {
-      if (fe->menu_selection == 2) {
+      if (fe->menu_selection == 3) {
         const int dir = (sc == SDL_SCANCODE_LEFT || sc == SDL_SCANCODE_A) ? 3 : 1;
         fe->skin = (fe->skin + dir) % 4;
       }
@@ -688,6 +825,8 @@ static void handle_menu_key(struct frontend_userdata *fe, SDL_Scancode sc) {
       if (fe->menu_selection == 0) {
         start_singleplayer(fe);
       } else if (fe->menu_selection == 1) {
+        start_local_coop(fe);
+      } else if (fe->menu_selection == 2) {
         fe->menu = MENU_MULTIPLAYER;
         fe->menu_selection = 0;
       } else {
@@ -1115,6 +1254,318 @@ static void draw_ghost(struct frontend_userdata *fe) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Local 2-player co-op
+//
+// The engine only simulates one player per world. For local play we keep a
+// second, headless SMB_state running in lockstep: its player is drawn as a
+// ghost inside player 1's view, so both share one camera and one window.
+// ---------------------------------------------------------------------------
+
+static void local_apply_pending_power(struct SMB_state *state, int *pending) {
+  if (*pending <= 0) {
+    return;
+  }
+
+  u8 *ram = SMB_ram(state);
+  const int status = ram[0x0756]; // PlayerStatus
+
+  if (status >= *pending) {
+    *pending = 0;
+    return;
+  }
+
+  if (ram[0x000E] != 8) { // wait until normal control (GR_UNK_8)
+    return;
+  }
+
+  if (*pending == 2 && status == 0) {
+    // Small + flower: grow first, then turn into fire once the animation ends.
+    SMB_give_power(state, 1);
+  } else {
+    SMB_give_power(state, *pending);
+    *pending = 0;
+  }
+}
+
+static void build_local_ghost(struct frontend_userdata *fe) {
+  if (!fe->local_coop || !fe->smb_state2) {
+    fe->ghost_valid = false;
+    return;
+  }
+
+  u8 *ram = SMB_ram(fe->smb_state2);
+  const int spr_off = ram[0x06E4];
+
+  if (spr_off > 0xF0) {
+    fe->ghost_valid = false;
+    return;
+  }
+
+  const int page = ram[0x006D];
+  const int px = ram[0x0086];
+  const int py = ram[0x00CE];
+  const int abs_x = page * 256 + px;
+  const int cam_abs = ram[0x071A] * 256 + ram[0x071C];
+  // Sprite coordinates are screen coordinates in SMB1, so offsets are relative
+  // to the player's own screen position.
+  const int screen_x = (abs_x - cam_abs) & 0xFF;
+  const int base = 0x0200 + spr_off;
+
+  fe->ghost_x = abs_x;
+  fe->ghost_y = py;
+  fe->ghost_level = ram[0x075F] * 10 + ram[0x075C];
+  fe->ghost_skin = (fe->skin + 1) & 3;
+
+  int count = 0;
+  for (int i = 0; i < 8; i++) {
+    const int oy = ram[base + i * 4] + 1;
+    const int tile = ram[base + i * 4 + 1];
+    const int attr = ram[base + i * 4 + 2];
+    const int ox = ram[base + i * 4 + 3];
+
+    if (tile == 0xFC || oy >= 240) {
+      continue;
+    }
+
+    int dx = ox - screen_x;
+    int dy = oy - py;
+    if (dx > 128) dx -= 256;
+    if (dx < -128) dx += 256;
+    if (dy > 128) dy -= 256;
+    if (dy < -128) dy += 256;
+
+    fe->ghost_sprites[count][0] = dx;
+    fe->ghost_sprites[count][1] = dy;
+    fe->ghost_sprites[count][2] = tile;
+    fe->ghost_sprites[count][3] = attr;
+    count++;
+  }
+
+  fe->ghost_sprite_count = count;
+  fe->ghost_valid = count > 0;
+}
+
+static void update_local_coop(struct frontend_userdata *fe, uint32_t now_ms) {
+  if (!fe->local_coop || !fe->smb_state2) {
+    return;
+  }
+
+
+
+  u8 *r1 = SMB_ram(fe->smb_state);
+  u8 *r2 = SMB_ram(fe->smb_state2);
+
+  const int level1 = r1[0x075F] * 10 + r1[0x075C];
+  const int level2 = r2[0x075F] * 10 + r2[0x075C];
+
+  // Each player respawns on the other's current screen after a pit death.
+  SMB_set_respawn_page(fe->smb_state2, r1[0x071A]);
+  SMB_set_respawn_page(fe->smb_state, r2[0x071A]);
+
+  // Keep both worlds on the same level (pipes/warps and transition timing).
+  if (level1 != fe->local_level1) {
+    fe->local_level1 = level1;
+    fe->local_level_change_ms = now_ms;
+  }
+  if (level2 != fe->local_level2) {
+    fe->local_level2 = level2;
+  }
+  if (level1 > 0 && level2 != level1 && !fe->local_p2_restarting &&
+      r1[0x000E] == 8 && (now_ms - fe->local_level_change_ms) > 1500 &&
+      (now_ms - fe->local_p2_restart_ms) > 2000) {
+    SMB_start_now(fe->smb_state2, (u8)(r1[0x075F] + 1), (u8)(r1[0x075C] + 1));
+    fe->local_p2_restarting = true;
+    fe->local_p2_restart_ms = now_ms;
+  }
+  if (fe->local_p2_restarting && level2 == level1) {
+    fe->local_p2_restarting = false;
+  }
+
+  // Shared power-ups: both players keep the same power state. Upgrade only, so
+  // dying does not downgrade the partner.
+  const int status1 = r1[0x0756];
+  const int status2 = r2[0x0756];
+  if (status1 > status2) {
+    fe->local_pending_power2 = status1;
+  } else if (status2 > status1) {
+    fe->local_pending_power1 = status2;
+  }
+  local_apply_pending_power(fe->smb_state, &fe->local_pending_power1);
+  local_apply_pending_power(fe->smb_state2, &fe->local_pending_power2);
+
+  // Share stars when one is collected (not while one is simply expiring).
+  const int star1 = r1[0x079F];
+  const int star2 = r2[0x079F];
+  if (star1 > fe->local_last_star1 && star1 > star2) {
+    SMB_give_power(fe->smb_state2, 3);
+  }
+  if (star2 > fe->local_last_star2 && star2 > star1) {
+    SMB_give_power(fe->smb_state, 3);
+  }
+  fe->local_last_star1 = star1;
+  fe->local_last_star2 = star2;
+
+  // Mirror broken blocks and collected power-ups between the two worlds.
+  int bx1 = 0, br1 = 0, bm1 = 0, bi1 = -1;
+  int bx2 = 0, br2 = 0, bm2 = 0, bi2 = -1;
+  const bool broke1 = SMB_take_eco_break(fe->smb_state, &bx1, &br1, &bm1, &bi1);
+  const bool broke2 = SMB_take_eco_break(fe->smb_state2, &bx2, &br2, &bm2, &bi2);
+  if (broke1) {
+    SMB_eco_break_at(fe->smb_state2, bx1, br1, bm1, bi1);
+  }
+  if (broke2) {
+    SMB_eco_break_at(fe->smb_state, bx2, br2, bm2, bi2);
+  }
+
+  int ix1 = 0, iy1 = 0, ix2 = 0, iy2 = 0;
+  const bool got1 = SMB_take_item_pickup(fe->smb_state, &ix1, &iy1);
+  const bool got2 = SMB_take_item_pickup(fe->smb_state2, &ix2, &iy2);
+  if (got1) {
+    SMB_remove_item_at(fe->smb_state2, ix1, iy1);
+  }
+  if (got2) {
+    SMB_remove_item_at(fe->smb_state, ix2, iy2);
+  }
+
+  // Share enemy kills: when one world erases an enemy, erase the matching
+  // enemy (same type, nearby position) in the other world.
+  int ex1 = 0; u8 et1 = 0;
+  int ex2 = 0; u8 et2 = 0;
+  const bool killed1 = SMB_take_eco_enemy_kill(fe->smb_state, &ex1, &et1);
+  const bool killed2 = SMB_take_eco_enemy_kill(fe->smb_state2, &ex2, &et2);
+  // Propagate only one direction per frame to avoid echo-of-echo recursion.
+  if (killed1) {
+    SMB_eco_kill_enemy_at(fe->smb_state2, ex1, et1);
+  } else if (killed2) {
+    SMB_eco_kill_enemy_at(fe->smb_state, ex2, et2);
+  }
+
+  // P2 can stomp P1's visible enemies (both worlds share the same level
+  // coordinates, so positions are directly comparable).
+  {
+    u8 *r1s = SMB_ram(fe->smb_state);
+    u8 *r2s = SMB_ram(fe->smb_state2);
+
+    const int p2_page = r2s[0x006D];
+    const int p2_x = r2s[0x0086];
+    const int p2_y = r2s[0x00CE];
+    const int p2_vy = (signed char)r2s[0x009F];
+    const int p2_world_x = p2_page * 256 + p2_x;
+    const int p2_size = (r2s[0x0756] > 0) ? 32 : 16;
+    const int p2_bottom = p2_y + p2_size;
+
+    if (p2_vy > 0) { // falling
+      for (int i = 0; i < 6; i++) {
+        const int eid = r1s[0x0016 + i];
+        if (eid == 0 || eid == 55) continue; // 55 = A_POWERUP
+        if (eid == 12 || eid == 13 || eid == 22 || eid == 23 || eid == 54) continue;
+        if (eid >= 56) continue;
+
+        const int epage = r1s[0x006D + 1 + i];
+        const int ex = r1s[0x0086 + 1 + i];
+        const int ey = r1s[0x00CE + 1 + i];
+        const int e_world_x = epage * 256 + ex;
+
+        const int dx = p2_world_x - e_world_x;
+        if (dx < -48 || dx > 48) continue;
+        if (p2_bottom < ey - 8 || p2_bottom > ey + 24) continue;
+        if (p2_y >= ey + 16) continue;
+
+        // Stomp: erase that exact slot in P1's world (eco hook propagates to P2's world).
+        SMB_erase_enemy_slot(fe->smb_state, i);
+        // Bounce P2.
+        r2s[0x009F] = (u8)-8;
+        break;
+      }
+    }
+  }
+
+  // Keep both players together: if P2 drifts too far from P1 (off camera),
+  // teleport P2 to P1's position so they share the same view.
+  {
+    u8 *r1t = SMB_ram(fe->smb_state);
+    u8 *r2t = SMB_ram(fe->smb_state2);
+    const int p1wx = r1t[0x006D] * 256 + r1t[0x0086];
+    const int p2wx = r2t[0x006D] * 256 + r2t[0x0086];
+    const int diff = p1wx > p2wx ? p1wx - p2wx : p2wx - p1wx;
+    const int p2vy_t = (signed char)r2t[0x009F];
+    // Teleport P2 to P1 when P2 gets more than ~1 screen away.
+    if (diff > 256 && p2vy_t <= 0) {
+      // Teleport P2 to the center of P1's screen.
+      const int center_x = p1wx + 128;
+      r2t[0x006D] = (u8)(center_x / 256);
+      r2t[0x0086] = (u8)(center_x % 256);
+      r2t[0x00CE] = r1t[0x00CE];
+      r2t[0x009F] = 0; // stop vertical speed
+    }
+  }
+
+  // Cooperative flagpole: wait for the partner before advancing, with a
+  // timeout so a stuck player cannot soft-lock the level.
+  const bool finished1 = player_finished_level(r1);
+  const bool finished2 = player_finished_level(r2);
+  const bool both = finished1 && finished2;
+  const bool any = finished1 || finished2;
+
+  if (any && !both) {
+    if (!fe->local_waiting) {
+      fe->local_waiting = true;
+      fe->local_wait_start_ms = now_ms;
+    }
+  } else {
+    fe->local_waiting = false;
+    fe->local_wait_start_ms = now_ms;
+  }
+
+  const bool timeout = fe->local_waiting &&
+                       (now_ms - fe->local_wait_start_ms > 60000);
+  SMB_set_hold_at_flag(fe->smb_state, finished1 && !finished2 && !timeout);
+  SMB_set_hold_at_flag(fe->smb_state2, finished2 && !finished1 && !timeout);
+
+  fe->local_cleared1 = finished1;
+  fe->local_cleared2 = finished2;
+}
+
+static void tick_game_worlds(struct frontend_userdata *fe, uint32_t now_ms) {
+  struct SMB_state *smb_state = fe->smb_state;
+
+  if (fe->local_coop) {
+    u8 *ram = SMB_ram(smb_state);
+    const bool paused = (ram[0x0776] & 1) != 0;
+
+    // Player 1's pause menu pauses both worlds.
+    if (!paused) {
+      apply_classic_rules(fe->smb_state2);
+      SMB_tick(fe->smb_state2);
+      apply_classic_rules(fe->smb_state2);
+    }
+  }
+
+  apply_classic_rules(smb_state);
+  SMB_tick(smb_state);
+  apply_classic_rules(smb_state);
+
+  if (fe->local_coop) {
+    update_local_coop(fe, now_ms);
+    apply_skin(fe);
+    build_local_ghost(fe);
+    draw_ghost(fe);
+  } else {
+    apply_skin(fe);
+    send_ghost_state(fe, now_ms);
+    update_ghost(fe);
+    update_coop(fe, now_ms);
+    draw_ghost(fe);
+  }
+
+  update_pause_menu(fe);
+  if (fe->pause_menu_active) {
+    draw_pause_menu(fe);
+  }
+  draw_online_status(fe);
+}
+
 // Called whenvere a key is newly pressed, or newly released
 // Does not send repeat keys from holding it down
 static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, bool isdown) {
@@ -1220,12 +1671,24 @@ static int on_keypress_change(struct frontend_userdata *fe, SDL_Scancode sc, boo
   KEY(a);
 #undef KEY
 
+  // Player 2 keyboard: arrows + comma (B / run) + period (A / jump).
+  if (fe->local_coop) {
+    switch (sc) {
+    case SDL_SCANCODE_UP:     fe->player2_buttons.u = isdown; break;
+    case SDL_SCANCODE_DOWN:   fe->player2_buttons.d = isdown; break;
+    case SDL_SCANCODE_LEFT:   fe->player2_buttons.l = isdown; break;
+    case SDL_SCANCODE_RIGHT:  fe->player2_buttons.r = isdown; break;
+    case SDL_SCANCODE_COMMA:  fe->player2_buttons.b = isdown; break;
+    case SDL_SCANCODE_PERIOD: fe->player2_buttons.a = isdown; break;
+    default: break;
+    }
+  }
+
   return 0;
 }
 
 int sdl_tick(void *userdata) {
   struct frontend_userdata *fe = userdata;
-  struct SMB_state *smb_state = fe->smb_state;
 
 #ifdef USE_SDL2
   SDL_Event eventData;
@@ -1258,10 +1721,20 @@ int sdl_tick(void *userdata) {
       break;
 
     case SDL_CONTROLLERDEVICEADDED:
-      if (!fe->gamecontroller && SDL_IsGameController(eventData.cdevice.which)) {
-        fe->gamecontroller = SDL_GameControllerOpen(eventData.cdevice.which);
-        if (fe->gamecontroller) {
-          log_info("Gamepad connected: %s", SDL_GameControllerName(fe->gamecontroller));
+      if (SDL_IsGameController(eventData.cdevice.which)) {
+        SDL_GameController *gc = SDL_GameControllerOpen(eventData.cdevice.which);
+        if (gc) {
+          if (!fe->gamecontroller) {
+            fe->gamecontroller = gc;
+          } else if (!fe->gamecontroller2) {
+            fe->gamecontroller2 = gc;
+          } else {
+            SDL_GameControllerClose(gc);
+            gc = NULL;
+          }
+          if (gc) {
+            log_info("Gamepad connected: %s", SDL_GameControllerName(gc));
+          }
         }
       }
       break;
@@ -1273,6 +1746,14 @@ int sdl_tick(void *userdata) {
           SDL_GameControllerClose(fe->gamecontroller);
           fe->gamecontroller = NULL;
           log_info("Gamepad disconnected");
+        }
+      }
+      if (fe->gamecontroller2) {
+        SDL_Joystick *joy = SDL_GameControllerGetJoystick(fe->gamecontroller2);
+        if (joy && SDL_JoystickInstanceID(joy) == eventData.cdevice.which) {
+          SDL_GameControllerClose(fe->gamecontroller2);
+          fe->gamecontroller2 = NULL;
+          log_info("Gamepad 2 disconnected");
         }
       }
       break;
@@ -1356,19 +1837,7 @@ int sdl_tick(void *userdata) {
   }
 
   if (fe->smb_gl) {
-    apply_classic_rules(smb_state);
-    SMB_tick(smb_state);
-    apply_classic_rules(smb_state);
-    apply_skin(fe);
-    send_ghost_state(fe, SDL_GetTicks());
-    update_ghost(fe);
-    update_coop(fe, SDL_GetTicks());
-    draw_ghost(fe);
-    update_pause_menu(fe);
-    if (fe->pause_menu_active) {
-      draw_pause_menu(fe);
-    }
-    draw_online_status(fe);
+    tick_game_worlds(fe, SDL_GetTicks());
 
     int draw_w = 0;
     int draw_h = 0;
@@ -1396,19 +1865,7 @@ int sdl_tick(void *userdata) {
     // draw_tile is invoked for each tile during SMB_tick, and will update the pixel buffer
     SMBraster_set_buffer(fe->smb_raster, surf->pixels, fe->pixels_stride);
     SMBraster_clear(fe->smb_raster);
-    apply_classic_rules(smb_state);
-    SMB_tick(smb_state);
-    apply_classic_rules(smb_state);
-    apply_skin(fe);
-    send_ghost_state(fe, SDL_GetTicks());
-    update_ghost(fe);
-    update_coop(fe, SDL_GetTicks());
-    draw_ghost(fe);
-    update_pause_menu(fe);
-    if (fe->pause_menu_active) {
-      draw_pause_menu(fe);
-    }
-    draw_online_status(fe);
+    tick_game_worlds(fe, SDL_GetTicks());
 
     SDL_UnlockSurface(surf);
 
@@ -1459,12 +1916,14 @@ int main(int argc, char *argv[]) {
   /******** Declare/allocate some memory ********/
 
   struct SMB_state *smb_state = malloc(SMB_state_size());
+  struct SMB_state *smb_state2 = malloc(SMB_state_size());
   struct frontend_userdata *fe = malloc(sizeof(struct frontend_userdata));
   struct config cfg = {0};
   SDL_GLContext glcontext = 0;
   struct SMB_callbacks callbacks = {0};
+  struct SMB_callbacks callbacks2 = {0};
 
-  if (!smb_state || !fe) {
+  if (!smb_state || !smb_state2 || !fe) {
     goto exit;
   }
   memset(fe, 0, sizeof(struct frontend_userdata));
@@ -1559,12 +2018,23 @@ int main(int argc, char *argv[]) {
     log_info("Gamepad subsystem unavailable: %s", SDL_GetError());
   } else {
     for (int i = 0; i < SDL_NumJoysticks(); i++) {
-      if (SDL_IsGameController(i)) {
-        fe->gamecontroller = SDL_GameControllerOpen(i);
-        if (fe->gamecontroller) {
-          log_info("Gamepad connected: %s", SDL_GameControllerName(fe->gamecontroller));
-          break;
-        }
+      if (!SDL_IsGameController(i)) {
+        continue;
+      }
+      SDL_GameController *gc = SDL_GameControllerOpen(i);
+      if (!gc) {
+        continue;
+      }
+      if (!fe->gamecontroller) {
+        fe->gamecontroller = gc;
+      } else if (!fe->gamecontroller2) {
+        fe->gamecontroller2 = gc;
+      } else {
+        SDL_GameControllerClose(gc);
+        gc = NULL;
+      }
+      if (gc) {
+        log_info("Gamepad connected: %s", SDL_GameControllerName(gc));
       }
     }
   }
@@ -1702,6 +2172,25 @@ int main(int argc, char *argv[]) {
   SMB_start_on_level(smb_state, cfg.world, cfg.level);
   fe->smb_state = smb_state;
 
+  // Second world for local 2-player: same ROM, but no video/audio output.
+  callbacks2 = callbacks;
+  callbacks2.update_pattern_tables = noop_update_pattern_tables;
+  callbacks2.update_palette = noop_update_palette;
+  callbacks2.draw_tile = noop_draw_tile;
+  callbacks2.apu_write_register = noop_apu_write_register;
+  callbacks2.apu_end_frame = noop_apu_end_frame;
+  callbacks2.joy1 = joy2; // player 2's buttons
+  callbacks2.joy2 = joy2;
+
+  // detect_and_load_rom reads the 16-byte header from the current position.
+  seek_rom(fe, 0);
+  if (!SMB_state_init(smb_state2, &callbacks2)) {
+    log_error("Could not initialize the second player");
+    goto exit;
+  }
+  SMB_start_on_level(smb_state2, cfg.world, cfg.level);
+  fe->smb_state2 = smb_state2;
+
   if (cfg.online) {
     struct netplay_config npcfg;
     memset(&npcfg, 0, sizeof(npcfg));
@@ -1720,6 +2209,10 @@ int main(int argc, char *argv[]) {
     fe->menu = MENU_MAIN;
   }
 
+  if (cfg.local_coop) {
+    start_local_coop(fe);
+    log_info("Local 2P: same camera, player 2 = arrows + comma/period");
+  }
   log_info("Started!");
 
 
@@ -1801,6 +2294,9 @@ exit:
   if (smb_state) {
     free(smb_state);
   }
+  if (smb_state2) {
+    free(smb_state2);
+  }
   if (fe) {
     if (fe->smb_gl) {
       SMBgl_fini(fe->smb_gl);
@@ -1825,6 +2321,10 @@ exit:
     if (fe->gamecontroller) {
       SDL_GameControllerClose(fe->gamecontroller);
       fe->gamecontroller = NULL;
+    }
+    if (fe->gamecontroller2) {
+      SDL_GameControllerClose(fe->gamecontroller2);
+      fe->gamecontroller2 = NULL;
     }
 #endif
     if (fe->window) {

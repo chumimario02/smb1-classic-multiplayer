@@ -17,6 +17,9 @@ struct SMB_state {
   bool hold_at_flag;
   // Page to respawn at after dying (set by the online co-op code). -1 = unused.
   int respawn_page;
+  // Local co-op: the second player is a guest in this world, so enemies must
+  // not hurt it (its deaths would happen off-screen).
+  bool local_invulnerable;
   // Last brick broken by the player, for online "eco blocks".
   int eco_break_x;
   int eco_break_row;
@@ -27,8 +30,14 @@ struct SMB_state {
   int eco_item_x;
   int eco_item_y;
   bool eco_item_pending;
+  // Last enemy killed, so the partner's copy can be removed too.
+  int eco_enemy_x;
+  u8 eco_enemy_type;
+  bool eco_enemy_pending;
   u8 start_on_world;
   u8 start_on_level;
+  // Skip the title menu once the reset finishes (local 2-player start).
+  bool start_immediately;
 
   struct SMB_callbacks callbacks;
   size_t smb2j_disk_offset;

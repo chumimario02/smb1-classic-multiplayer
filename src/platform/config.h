@@ -53,6 +53,9 @@ struct config {
   const char *online_server;
   const char *online_name;
 
+  // Start directly in local 2-player mode (same camera, one window).
+  bool local_coop;
+
 #include "config.inc"
 };
 
@@ -160,6 +163,10 @@ static bool parse_cli_args(int argc, char *argv[], struct config *cfg) {
       POP();
       POP();
       cfg->online_name = ptr;
+    }
+    if (PEEK_EQ("--local-2p")) {
+      POP();
+      cfg->local_coop = true;
     }
     if (PEEK_EQ("--maxspeed")) {
       POP();

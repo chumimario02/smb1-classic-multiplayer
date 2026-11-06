@@ -399,6 +399,32 @@ static inline u8 GoContinue(const u8 param_1) {
 // Signature: [] -> []
 void GameMenuRoutine(void) {
 #ifdef SMB1_MODE
+  // Local 2-player: the frontend asked to start a level directly. The reset
+  // already ran InitializeGame/PrimaryGameSetup while the title screen was
+  // being prepared, so all we have to do is take the same path as the Start
+  // button, minus the "continue" variant.
+  if (SMB_STATE->start_immediately) {
+    SMB_STATE->start_immediately = false;
+
+    LoadAreaPointer();
+    Hidden1UpFlag = true;
+    OffScr_Hidden1UpFlag = true;
+    FetchNewGameTimerFlag = true;
+
+    expect(OperMode == OM_UNK_0);
+    OperMode = OM_UNK_1;
+    OperMode_Task = OMT_1_UNK_0;
+
+    PrimaryHardMode = WorldSelectEnableFlag;
+    DemoTimer = 0;
+    for (int i = 0; i < 12*2; i++) {
+      DisplayDigits[i + 6] = 0;
+    }
+    return;
+  }
+#endif
+
+#ifdef SMB1_MODE
   const u8 buttons = SavedJoypadBits1 | SavedJoypadBits2;
 #endif
 #ifdef SMB2J_MODE
@@ -655,6 +681,23 @@ void TitleScreenMode(void) {
   if (param_1 == OMT_0_UNK_0) {
     InitializeGame();
     expect(OperMode == OM_UNK_0);
+    // Local 2-player: skip the title screen entirely (no flash).
+    if (SMB_STATE->start_immediately) {
+      SMB_STATE->start_immediately = false;
+      PrimaryGameSetup();
+      LoadAreaPointer();
+      Hidden1UpFlag = true;
+      OffScr_Hidden1UpFlag = true;
+      FetchNewGameTimerFlag = true;
+      OperMode = OM_UNK_1;
+      OperMode_Task = OMT_1_UNK_0;
+      PrimaryHardMode = WorldSelectEnableFlag;
+      DemoTimer = 0;
+      for (int i = 0; i < 12*2; i++) {
+        DisplayDigits[i + 6] = 0;
+      }
+      return;
+    }
     OperMode_Task = OMT_0_UNK_1;
     return;
   }
@@ -6421,6 +6464,14 @@ void LargePlatformSubroutines(const u8 objoff) {
 // SM2MAIN:95cd
 // Signature: [X] -> []
 void EraseEnemyObject(const u8 param_1) {
+  // Local/online co-op: remember enemy kills so the partner's copy can be
+  // removed too.
+  if (SMB_STATE && Enemy_ID[param_1] != 0 && Enemy_ID[param_1] != A_POWERUP) {
+    SMB_STATE->eco_enemy_x = (int)Enemy_PageLoc[param_1] * 256 + (int)Enemy_X_Position[param_1];
+    SMB_STATE->eco_enemy_type = Enemy_ID[param_1];
+    SMB_STATE->eco_enemy_pending = true;
+  }
+
   actor_set_id(param_1, A_GREEN_KOOPA);
   actor_deactivate(param_1);
   actor_state_set_raw(param_1, 0);
@@ -8615,6 +8666,10 @@ void PlayerEnemyCollision(const u8 objoff) {
 // SM2MAIN:a587
 // Signature: [] -> []
 void InjurePlayer(void) {
+  if (SMB_STATE->local_invulnerable) {
+    return;
+  }
+
   if (InjuryTimer != 0) {
     return;
   }

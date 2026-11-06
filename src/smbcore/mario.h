@@ -66,6 +66,9 @@ size_t SMB_state_size(void);
 bool SMB_state_init(struct SMB_state *state, const struct SMB_callbacks *cb);
 int SMB_which_game(const struct SMB_state *state);
 void SMB_start_on_level(struct SMB_state *state, u8 world, u8 level);
+// Reset and start the given level immediately, skipping the title screen.
+// Used by the local 2-player mode so both worlds begin at the same time.
+void SMB_start_now(struct SMB_state *state, u8 world, u8 level);
 // Reset the current game and return to the title screen.
 void SMB_return_to_title(struct SMB_state *state);
 void SMB_tick(struct SMB_state *state);
@@ -82,6 +85,8 @@ void SMB_ram_finishwrite(struct SMB_state *state);
 void SMB_set_hold_at_flag(struct SMB_state *state, bool hold);
 // Choose the page (screen) the player respawns at after dying. Pass -1 to clear.
 void SMB_set_respawn_page(struct SMB_state *state, int page);
+// Local co-op guest: ignore enemy damage (pit deaths still work).
+void SMB_set_invulnerable(struct SMB_state *state, bool invulnerable);
 // Give the player a power-up as if they had collected it: 1 = mushroom,
 // 2 = fire flower, 3 = star.
 void SMB_give_power(struct SMB_state *state, int power);
@@ -95,6 +100,11 @@ bool SMB_eco_break_at(struct SMB_state *state, int world_x, int row, int metatil
 bool SMB_take_item_pickup(struct SMB_state *state, int *world_x, int *y);
 // Removes the copy of that power-up in our world, if it is still around.
 void SMB_remove_item_at(struct SMB_state *state, int world_x, int y);
+
+// Enemy kill sharing for local 2-player.
+bool SMB_take_eco_enemy_kill(struct SMB_state *state, int *world_x, u8 *type);
+void SMB_eco_kill_enemy_at(struct SMB_state *state, int world_x, u8 type);
+void SMB_erase_enemy_slot(struct SMB_state *state, int slot);
 
 #ifdef __cplusplus
 }

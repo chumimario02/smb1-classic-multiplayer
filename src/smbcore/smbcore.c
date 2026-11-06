@@ -193,9 +193,23 @@ void SMB_start_on_level(struct SMB_state *state, u8 world, u8 level) {
   state->start_on_level = level;
 }
 
+void SMB_start_now(struct SMB_state *state, u8 world, u8 level) {
+  state->start_on_world = world;
+  state->start_on_level = level;
+  state->return_to_title = false;
+  // The next tick runs smb1_Reset() and then loads start_on_world/level.
+  state->reset_occurred = false;
+  // Make sure the title state machine starts at its first task so we can
+  // skip the title screen entirely (no flash).
+  state->rammem[0x0772] = 0;
+  // The title screen still performs its initial setup, but we skip the menu.
+  state->start_immediately = true;
+}
+
 void SMB_return_to_title(struct SMB_state *state) {
   state->return_to_title = true;
   state->reset_occurred = false;
+  state->start_immediately = false;
 }
 
 int SMB_which_game(const struct SMB_state *state) { return state->which_game; }
@@ -230,6 +244,10 @@ void SMB_set_hold_at_flag(struct SMB_state *state, bool hold) {
 
 void SMB_set_respawn_page(struct SMB_state *state, int page) {
   state->respawn_page = page;
+}
+
+void SMB_set_invulnerable(struct SMB_state *state, bool invulnerable) {
+  state->local_invulnerable = invulnerable;
 }
 
 bool SMB_take_eco_break(struct SMB_state *state, int *world_x, int *row, int *metatile, int *item) {
@@ -346,6 +364,58 @@ void SMB_remove_item_at(struct SMB_state *state, int world_x, int y) {
   // worlds while the item pops out and falls.
   if (Enemy_ID[5] == A_POWERUP) {
     smb1_EraseEnemyObject(5);
+  }
+}
+
+bool SMB_take_eco_enemy_kill(struct SMB_state *state, int *world_x, u8 *type) {
+  if (!state->eco_enemy_pending) {
+    return false;
+  }
+
+  state->eco_enemy_pending = false;
+
+  if (world_x) *world_x = state->eco_enemy_x;
+  if (type) *type = state->eco_enemy_type;
+
+  return true;
+}
+
+void SMB_erase_enemy_slot(struct SMB_state *state, int slot) {
+  if (state->which_game != GAME_SMB1) {
+    return;
+  }
+  if (slot < 0 || slot >= 6) {
+    return;
+  }
+  SMB_STATE = state;
+  smb1_EraseEnemyObject((u8)slot);
+}
+
+void SMB_eco_kill_enemy_at(struct SMB_state *state, int world_x, u8 type) {
+  if (state->which_game != GAME_SMB1) {
+    return;
+  }
+
+  SMB_STATE = state;
+
+  // Find the closest enemy of the same type and erase it.
+  int best = -1;
+  int best_dist = 1 << 30;
+
+  for (int i = 0; i < 6; i++) {
+    if (Enemy_ID[i] == 0 || Enemy_ID[i] != type) {
+      continue;
+    }
+    const int ex = (int)Enemy_PageLoc[i] * 256 + (int)Enemy_X_Position[i];
+    const int d = ex > world_x ? ex - world_x : world_x - ex;
+    if (d < best_dist) {
+      best_dist = d;
+      best = i;
+    }
+  }
+
+  if (best >= 0 && best_dist < 96) {
+    smb1_EraseEnemyObject((u8)best);
   }
 }
 
